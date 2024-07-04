@@ -149,12 +149,12 @@ def test_try():
 0
 2024-07-03 13:02:56;runner;ipython_utils;759;INFO: exception raised
 Traceback (most recent call last):
-  File "/home/user1/dvl/wz_tools/ipython_utils.py", line 757, in runner
+  File "/working/ipython_utils/ipython_utils.py", line 757, in runner
     ret = patched(i)
-  File "/home/user1/dvl/wz_tools/ipython_utils.py", line 1026, in f
+  File "/working/ipython_utils/ipython_utils.py", line 1026, in f
     x = 1 / x  # (x + 1)
 ZeroDivisionError: division by zero
-filename [/home/user1/dvl/wz_tools/ipython_utils.py]: # after editing
+filename [/working/ipython_utils/ipython_utils.py]: # after editing
 function line num [1022]:
 next statement line num [1026]:
 1.0
