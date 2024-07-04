@@ -84,14 +84,14 @@ def test_embed():
         x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
         print(x1, x2, y0, y1)
         # passing the enclosing function allows variables from the parent scopes
-        # which were closed over to be accessed and modified (x and y)
+        # which were closed over to be accessed and modified (x1 and x2)
         # note that none of the shell will see `x0`
         embed(funcs=[f])
         # run: x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]; g()
         x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
         print(x1, x2, y0, y1)
         # passing a closure over local variables allow the specified variables
-        # to be accessed and modified (z and w)
+        # to be accessed and modified (y0 and y1)
         embed(funcs=[f, lambda: (y0, y1)])
         # run: x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]; g()
         x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
