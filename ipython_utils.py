@@ -563,11 +563,11 @@ def run_statements_helper(patcher_cell: types.CellType,
     to future recursive calls, the original wrapper can be updated with the
     patched function as it will use this cell's contents as the patcher.
 
-    If the user enters a negative number for the next statement line, an
-    embedded shell will be injected into the statements, after which a raise
-    will once again drop it back here. The special case of `0` is treated as
-    `-x` where `x` is the default next statement line (the line of the statement
-    which failed).
+    If the user enters a negative number `-x` for the next statement line, an
+    embedded shell will be injected into the statement at line `x`, after which
+    a raise will once again drop it back here. The special case of `0` is
+    treated as `-x` where `x` is the default next statement line (the line of
+    the statement which failed).
 
     General Info:
     If `f` is a function, then

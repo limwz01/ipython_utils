@@ -122,7 +122,7 @@ In order to inspect the live objects at the point of an exception, we can add a 
 
 If your program does a lot of computation, and you are only modifying/developing a small piece, you would not want to keep restarting it just because many bugs with this small piece keep causing exceptions, which are generally unrecoverable in Python. However, if you have a perfect embedded shell, there is a workflow that can save you much time when editing a function. Every time you make an edit to a line (say line `i`), it may or may not cause an exception in lines `i` and onwards. You position an `embed()` to before line `i`, run the program, and when the shell appears, paste in all of the code from line `i` onwards. If it causes an exception on line `j`, you modify the code and paste in all the code from line `j` onwards. Repeat this process until there is no exception.
 
-As this copying and pasting process is still tedious, we made it even easier, just decorate a function with `try_all_statements`, and the function will be split into statements to be run one-by-one. If any of them raises an exception, one can either drop into a shell to inspect the variables, or simply edit the original source code of the function and rerun starting from a certain statement onwards.
+As this copying and pasting process is still tedious, we made it even easier, just decorate a function with `try_all_statements`, and the function will be split into statements to be run one-by-one. If any of them raises an exception, one can either drop into a shell (e.g. by entering 0 in place of the line number; see docs) to inspect the variables, or simply edit the original source code of the function and rerun starting from a certain statement onwards.
 
 ```python3
 def test_try():
