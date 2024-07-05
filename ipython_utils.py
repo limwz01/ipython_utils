@@ -614,12 +614,13 @@ def run_statements_helper(patcher_cell: types.CellType,
     statements = [
         AnnotationRemover().visit(statement) for statement in statements
     ]
+    co_varnames = list(co_varnames)
+    co_cellvars = list(co_cellvars)
+    co_varnames_set = set(co_varnames)
+    co_cellvars_set = set(co_cellvars)
     while True:
         # L.info("%s", f'{co_varnames=} {co_cellvars=} {co_freevars=}')
         # co_cellvars might be repeated in co_varnames if it is a parameter
-        co_varnames = list(co_varnames)
-        co_cellvars = list(co_cellvars)
-        co_varnames_set = set(co_varnames)
         all_locals = co_varnames + [
             x for x in co_cellvars if x not in co_varnames_set
         ] + list(co_freevars)
@@ -685,22 +686,32 @@ def run_statements_helper(patcher_cell: types.CellType,
         _outer = local_dict[magic + "_outer"]
         _inner: types.FunctionType = _outer(
             *[None for i in range(len(all_locals))])
+        # L.info(
+        #     "%s",
+        #     f'{_inner.__code__.co_varnames=} {_inner.__code__.co_cellvars=}')
         # if there are extra local variables in `co_varnames` and `co_cellvars`,
         # add it to `all_locals` and start over
         if to_try:
             assert _inner.__code__.co_varnames[0] == magic + "_i"
-            if len(_inner.__code__.co_varnames) > 1 or len(
-                    _inner.__code__.co_cellvars) > 0:
-                co_varnames.extend(_inner.__code__.co_varnames[1:])
-                co_cellvars.extend(_inner.__code__.co_cellvars)
-                continue
+            co_varnames_new = _inner.__code__.co_varnames[1:]
         else:
-            if len(_inner.__code__.co_varnames) > 0 or len(
-                    _inner.__code__.co_cellvars) > 0:
-                co_varnames.extend(_inner.__code__.co_varnames)
-                co_cellvars.extend(_inner.__code__.co_cellvars)
-                continue
-        break
+            co_varnames_new = _inner.__code__.co_varnames
+        # must check original set due to a bug in Python 3.12
+        vars_changed = False
+        for varname in co_varnames_new:
+            if varname not in co_varnames_set:
+                co_varnames.append(varname)
+                vars_changed = True
+        co_varnames_set = set(co_varnames)
+        for varname in _inner.__code__.co_cellvars:
+            if varname not in co_varnames_set:
+                co_cellvars.append(varname)
+                vars_changed = True
+        co_cellvars_set = set(co_cellvars)
+        if vars_changed:
+            continue
+        else:
+            break
 
     all_locals_len = len(all_locals)
 
