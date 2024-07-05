@@ -704,7 +704,7 @@ def run_statements_helper(patcher_cell: types.CellType,
                 vars_changed = True
         co_varnames_set = set(co_varnames)
         for varname in _inner.__code__.co_cellvars:
-            if varname not in co_varnames_set:
+            if varname not in co_cellvars_set:
                 co_cellvars.append(varname)
                 vars_changed = True
         co_cellvars_set = set(co_cellvars)
