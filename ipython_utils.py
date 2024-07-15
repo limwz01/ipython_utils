@@ -74,19 +74,19 @@ def embed(*,
 
     Then we patch the returned function's closure in order to carry forward the
     cells (and their contents) from previous cell executions. This will allow
-    even inner closures to be closed over the right cells. The argument `func`
-    allows you to have additional closed variables as this additional closure is
-    copied over in this patching process. Note that only such variable
-    modifications are able to persist after the shell exits. This means that
-    they must originally be closed over, because otherwise they are not stored
-    as cells in the corresponding frames. Calling embed inside
-    `try_all_statements` or another `embed` should use `_ipy_magic_inner` in
-    `funcs` in order to get the right closure cells.
+    even inner closures to be closed over the right cells. The argument `funcs`
+    allows you to have additional closed variables as the resolving of cells in
+    this patching process will include cells in the closure of functions in
+    `funcs`. Note that only such variable modifications are able to persist
+    after the shell exits. This means that they must originally be closed over,
+    because otherwise they are not stored as cells in the corresponding frames.
+    Calling embed inside `try_all_statements` or another `embed` should use
+    `_ipy_magic_inner` in `funcs` in order to get the right closure cells.
 
     Some known issues or unusual behaviour:
     * changes to local variables are only visible to code within the shell
     session (it is possible to make this work for cell variables in CPython, but
-    it may be prone to breakage), unless `func` is passed with a closure
+    it may be prone to breakage), unless `funcs` has a function with a closure
     containing the cells for these local variables
     * outer scope variables must already have had a closure referencing it to be
     visible (`nonlocal` does not work); changes to these are persistent
@@ -181,9 +181,12 @@ def embed(*,
     # TODO: find `global` statements and remember them over multiple cell executions
     shell.ast_transformers.append(
         FixLocals(shell, frame, cell_dict, extra_globals, magic))
+    from IPython.core.interactiveshell import DummyMod
+    module = DummyMod()
+    module.__dict__ = frame.f_globals
     shell(header=header,
           local_ns=frame.f_locals,
-          global_ns=frame.f_globals,
+          module=module,
           compile_flags=compile_flags,
           _call_location_id='%s:%s' %
           (frame.f_code.co_filename, frame.f_lineno))
