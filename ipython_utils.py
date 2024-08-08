@@ -42,9 +42,9 @@ def excepthook(etype, value, tb):
         break
 
 
-def embed(*,
+def embed(funcs: List[types.FunctionType] = None,
+          *,
           frame=None,
-          funcs: List[types.FunctionType] = None,
           header="",
           compile_flags=None,
           **kwargs):
@@ -169,16 +169,22 @@ def embed(*,
                                          if x[0][:1].strip() == "" else x)
     cell_dict = {}
     if funcs:
-        for func in funcs:
+        if isinstance(funcs, types.FunctionType):
+            func = funcs
             if func.__closure__:
                 for name, val in zip(func.__code__.co_freevars,
                                      func.__closure__):
                     cell_dict[name] = val
+        else:
+            for func in funcs:
+                if func.__closure__:
+                    for name, val in zip(func.__code__.co_freevars,
+                                         func.__closure__):
+                        cell_dict[name] = val
     for k, v in frame.f_locals.items():
         if k not in cell_dict:
             cell_dict[k] = types.CellType(v)
     extra_globals = set()
-    # TODO: find `global` statements and remember them over multiple cell executions
     shell.ast_transformers.append(
         FixLocals(shell, frame, cell_dict, extra_globals, magic))
     from IPython.core.interactiveshell import DummyMod
@@ -223,6 +229,12 @@ class FixLocals(object):
                         module_ast.body[0] if module_ast.body else module_ast))
             CollectGlobals(self.extra_globals).visit(module_ast)
             patcher_cell = types.CellType()
+            statement = module_ast.body[-1]
+            if isinstance(statement, ast.Expr):
+                module_ast.body[-1] = ast.copy_location(
+                    ast.Return(value=statement.value), statement)
+
+            # TODO: add return to last expression
             runner = run_statements_helper(patcher_cell, module_ast.body, None,
                                            self.magic + "_shell", None,
                                            self.shell.user_global_ns,
@@ -512,7 +524,8 @@ def run_statements_helper(patcher_cell: types.CellType,
                           magic: str, to_try: bool):
     """
     If `to_try` is true, this changes a sequence of statements to a function
-    that can run individual statements like so:
+    that can run individual statements like so (if it hits the end of the
+    statement without returning, it will return _ipy_magic_inner):
     ```
     def _ipy_magic_outer(a, b, c):
         del a, b, c
@@ -520,9 +533,11 @@ def run_statements_helper(patcher_cell: types.CellType,
             nonlocal _ipy_magic_inner
             nonlocal a, b, c
             if _i == 0:
-                return statement0_expr  # if not expression, just statement
+                statement0
+                return _ipy_magic_inner
             elif _i == 1:
-                return statement1_expr
+                statement1
+                return _ipy_magic_inner
             ...
         return _ipy_magic_inner
     ```
@@ -536,7 +551,6 @@ def run_statements_helper(patcher_cell: types.CellType,
             nonlocal a, b, c
             statement0
             ...
-            return last_statement_expr
         return _inner
     ```
 
@@ -639,7 +653,7 @@ def run_statements_helper(patcher_cell: types.CellType,
                         nonlocal {0}_inner
                         {2}nonlocal {1}
                         if {0}_i == 0:
-                            return None
+                            return {0}_inner
                     return {0}_inner
             """.strip().format(magic, ",".join(all_locals),
                                "" if len(all_locals) else "pass # "))
@@ -652,12 +666,7 @@ def run_statements_helper(patcher_cell: types.CellType,
                 # make it compare `_i` with the real statement index
                 if_ast.test.comparators[0].value = i
                 return_ast: ast.Return = if_ast.body[0]
-                if isinstance(statement, ast.Expr):
-                    # make it return the expression statement
-                    return_ast.value = statement.value
-                else:
-                    # just make it run the statement and return None
-                    if_ast.body.insert(0, statement)
+                if_ast.body.insert(0, statement)
                 if_asts.append(if_ast)
             # add all the if statements to the body of `_inner`
             inner_ast.body.extend(if_asts)
@@ -668,19 +677,12 @@ def run_statements_helper(patcher_cell: types.CellType,
                     def {0}_inner():
                         nonlocal {0}_inner
                         {2}nonlocal {1}
-                        return None
                     return {0}_inner
             """.strip().format(magic, ",".join(all_locals),
                                "" if len(all_locals) else "pass # "))
             outer_ast: ast.FunctionDef = module_ast.body[0]
             inner_ast: ast.FunctionDef = outer_ast.body[1]
-            return_ast: ast.Return = inner_ast.body.pop()
-            if len(statements) >= 1 and isinstance(statements[-1], ast.Expr):
-                inner_ast.body.extend(statements[:-1])
-                return_ast.value = statements[-1].value
-                inner_ast.body.append(return_ast)
-            else:
-                inner_ast.body.extend(statements)
+            inner_ast.body.extend(statements)
         # execute definition of `_outer` with empty locals and correct globals
         local_dict = {}
         exec(compile(module_ast, filename, "exec", flags, dont_inherit=True),
@@ -767,6 +769,8 @@ def run_statements_helper(patcher_cell: types.CellType,
             try:
                 # L.info("running statement %d", i)
                 ret = patched(i)
+                if ret is not patched:
+                    return ret
             except:
                 L.info("exception raised", exc_info=True)
                 while True:
@@ -828,7 +832,7 @@ def run_statements_helper(patcher_cell: types.CellType,
                                 exc_info=True)
                 # finally run the new wrapper
                 return runner_new(patched_new, next_i, cell_dict)
-        return ret
+        return None
 
     return runner
 
@@ -974,6 +978,99 @@ def prompt_with_default(prompt, def_val, transform=(lambda x: x)):
             pass
 
 
+def run_func(it=None, structure=1, *args, **kwargs):
+    """
+    This is a decorator to run a function, iterating with `it` as first argument
+    and with the remaining args as subsequent arguments
+    :param f: function to decorate
+    :return: wrapped function
+    """
+    if it:
+        if isinstance(structure, tuple):
+
+            def decorator(f: types.FunctionType):
+                for x in it:
+                    if f(*flatten_tuple(x, structure), *args, **kwargs):
+                        break
+
+            return decorator
+
+        if structure == 1:
+
+            def decorator(f: types.FunctionType):
+                for x in it:
+                    if f(x, *args, **kwargs):
+                        break
+
+            return decorator
+        if structure == -1:
+
+            def decorator(f: types.FunctionType):
+                for x in it:
+                    if f(*args, **kwargs):
+                        break
+
+            return decorator
+
+        if structure == 0:
+
+            def decorator(f: types.FunctionType):
+                for x in it:
+                    if f(*x, *args, **kwargs):
+                        break
+
+            return decorator
+
+        def decorator(f: types.FunctionType):
+            for x in it:
+                assert len(x) == structure
+                if f(*x, *args, **kwargs):
+                    break
+
+        return decorator
+
+    def decorator(f: types.FunctionType):
+        f(*args, **kwargs)
+
+    return decorator
+
+
+def flatten_tuple(data, structure, cache={}):
+    if not (unpacker := cache.get(structure)):
+
+        def get_unstruct(structure, n_vars):
+            if isinstance(structure, int):
+                if structure == 0:
+                    return "*x%d" % n_vars, n_vars + 1
+                if structure == -1:
+                    return "_", n_vars
+                new_n_vars = n_vars + structure
+                ret = ",".join("x%d" % i for i in range(n_vars, new_n_vars))
+                n_vars = new_n_vars
+                return ret, new_n_vars
+            assert isinstance(structure, tuple)
+            unstruct_code = "("
+            for x in structure:
+                unstruct_code_one, n_vars = get_unstruct(x, n_vars)
+                unstruct_code += unstruct_code_one + ","
+            return unstruct_code + ")", n_vars
+
+        unstruct_code, n_vars = get_unstruct(structure, 0)
+        local_dict = {}
+        exec(
+            compile(
+                "def unpacker(data):\n %s = data\n return x%s" %
+                (unstruct_code,
+                 ("x" +
+                  ",x".join(map(str, range(n_vars))) if n_vars else "(,)")),
+                "",
+                "exec",
+                dont_inherit=True), {}, local_dict)
+        unpacker = local_dict["unpacker"]
+        cache[structure] = unpacker
+    return unpacker(data)
+
+
 def main():
     logging.basicConfig(
         format=
@@ -1036,6 +1133,10 @@ def test_try():
         # editing the below statement to `x = 1 / (x + 1)` after the exception
         # is raised will allow it to continue
         x = 1 / x  # (x + 1)
+        if x == 1:
+            print("x is 1")
+            return
+        assert x != 1
         print(x)
 
     f(1)
