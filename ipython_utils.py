@@ -18,7 +18,7 @@ L = logging.getLogger("_." + __file__)
 
 magic = "_ipy_magic"
 _ipy_magic_inner: None  # dummy to resolve IDE errors
-globals()[magic + "_inner"] = None
+globals()[magic + "_inner"] = lambda: None
 
 
 def add_except_hook():
@@ -233,8 +233,6 @@ class FixLocals(object):
             if isinstance(statement, ast.Expr):
                 module_ast.body[-1] = ast.copy_location(
                     ast.Return(value=statement.value), statement)
-
-            # TODO: add return to last expression
             runner = run_statements_helper(patcher_cell, module_ast.body, None,
                                            self.magic + "_shell", None,
                                            self.shell.user_global_ns,
@@ -454,6 +452,7 @@ def try_all_statements(f: types.FunctionType):
     co_varnames = f.__code__.co_varnames
     co_freevars = f.__code__.co_freevars
     patcher_cell = types.CellType()
+    # TODO: add recursive try_all loop helper
     runner = run_statements_helper(patcher_cell, fmod_ast.body[0].body,
                                    f.__module__, f.__name__, f.__qualname__,
                                    f.__globals__, co_varnames,
@@ -514,6 +513,43 @@ def try_all_statements(f: types.FunctionType):
 
     wrapper.__wrapped__ = None
     return wrapper
+
+
+class TryBlockTransformer(ast.NodeTransformer):
+
+    def __init__(self):
+        self.flag = False
+
+    def visit_Lambda(self, node: ast.Lambda) -> Any:
+        if len(node.args.args) == 1 and node.args.args[0].arg == "try_all":
+            self.flag = True
+        return self.generic_visit(node)
+
+    def visit_For(self, node: ast.For) -> Any:
+        if self.flag:
+            self.flag = False
+            # TODO: new idea: convert `for x, (y, z) in it:` within try_all_statements to
+            #   it2 = iter(it)
+            #   if i == 0:
+            #       try:
+            #           _ = next(it)
+            #       except:
+            #           return True
+            #   for _ in [0]:
+            #       if i==1:
+            #           statement1
+            #       if i==2:
+            #           statement2
+            #       ...
+
+            # TODO: automatically convert `for x, (y, z) in it:` to:
+            #   @run_func(it, (1, (1, 1)))
+            #   @try_all_statements
+            #   def _(x, y, z):
+            # and `continue` to `return` and `break` to `return True`
+            # how to make variables that become local into nonlocal?
+            #   leak locals into cell_dict
+        return self.generic_visit(node)
 
 
 def run_statements_helper(patcher_cell: types.CellType,
@@ -838,9 +874,54 @@ def run_statements_helper(patcher_cell: types.CellType,
 
 
 class AnnotationRemover(ast.NodeTransformer):
+    """
+    removes type annotations of variables that are currently local but would
+    become non-local
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.is_top_level = True
+
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> Any:
+        self.is_top_level = False
+        return self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> Any:
+        self.is_top_level = False
+        return self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef) -> Any:
+        self.is_top_level = False
+        return self.generic_visit(node)
+
+    def generic_visit(self, node):
+        is_top_level = self.is_top_level
+        for field, old_value in ast.iter_fields(node):
+            if isinstance(old_value, list):
+                new_values = []
+                for value in old_value:
+                    if isinstance(value, ast.AST):
+                        value = self.visit(value)
+                        self.is_top_level = is_top_level
+                        if value is None:
+                            continue
+                        elif not isinstance(value, ast.AST):
+                            new_values.extend(value)
+                            continue
+                    new_values.append(value)
+                old_value[:] = new_values
+            elif isinstance(old_value, ast.AST):
+                new_node = self.visit(old_value)
+                self.is_top_level = is_top_level
+                if new_node is None:
+                    delattr(node, field)
+                else:
+                    setattr(node, field, new_node)
+        return node
 
     def visit_AnnAssign(self, node: ast.AnnAssign) -> Any:
-        if isinstance(node.target, ast.Name):
+        if self.is_top_level and isinstance(node.target, ast.Name):
             C = lambda x: ast.copy_location(x, node)
             load = ast.Load()
             subscript = C(
@@ -985,52 +1066,53 @@ def run_func(it=None, structure=1, *args, **kwargs):
     :param f: function to decorate
     :return: wrapped function
     """
-    if it:
-        if isinstance(structure, tuple):
+    if it is None:
 
-            def decorator(f: types.FunctionType):
-                for x in it:
-                    if f(*flatten_tuple(x, structure), *args, **kwargs):
-                        break
+        def decorator(f: types.FunctionType):
+            f(*args, **kwargs)
 
-            return decorator
+        return decorator
 
-        if structure == 1:
-
-            def decorator(f: types.FunctionType):
-                for x in it:
-                    if f(x, *args, **kwargs):
-                        break
-
-            return decorator
-        if structure == -1:
-
-            def decorator(f: types.FunctionType):
-                for x in it:
-                    if f(*args, **kwargs):
-                        break
-
-            return decorator
-
-        if structure == 0:
-
-            def decorator(f: types.FunctionType):
-                for x in it:
-                    if f(*x, *args, **kwargs):
-                        break
-
-            return decorator
+    if isinstance(structure, tuple):
 
         def decorator(f: types.FunctionType):
             for x in it:
-                assert len(x) == structure
-                if f(*x, *args, **kwargs):
+                if f(*flatten_tuple(x, structure), *args, **kwargs) == "break":
+                    break
+
+        return decorator
+
+    if structure == 1:
+
+        def decorator(f: types.FunctionType):
+            for x in it:
+                if f(x, *args, **kwargs) == "break":
+                    break
+
+        return decorator
+    if structure == -1:
+
+        def decorator(f: types.FunctionType):
+            for x in it:
+                if f(*args, **kwargs) == "break":
+                    break
+
+        return decorator
+
+    if structure == 0:
+
+        def decorator(f: types.FunctionType):
+            for x in it:
+                if f(*x, *args, **kwargs) == "break":
                     break
 
         return decorator
 
     def decorator(f: types.FunctionType):
-        f(*args, **kwargs)
+        for x in it:
+            assert len(x) == structure
+            if f(*x, *args, **kwargs) == "break":
+                break
 
     return decorator
 
@@ -1059,7 +1141,7 @@ def flatten_tuple(data, structure, cache={}):
         local_dict = {}
         exec(
             compile(
-                "def unpacker(data):\n %s = data\n return x%s" %
+                "def unpacker(data):\n %s = data\n return %s" %
                 (unstruct_code,
                  ("x" +
                   ",x".join(map(str, range(n_vars))) if n_vars else "(,)")),
