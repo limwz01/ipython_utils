@@ -560,7 +560,7 @@ def run_statements_helper(patcher_cell: types.CellType,
                           magic: str, to_try: bool):
     """
     If `to_try` is true, this changes a sequence of statements to a function
-    that can run individual statements like so (if it hits the end of the
+    that can run individual statements like so (if it hit the end of the
     statement without returning, it will return _ipy_magic_inner):
     ```
     def _ipy_magic_outer(a, b, c):
@@ -667,7 +667,9 @@ def run_statements_helper(patcher_cell: types.CellType,
     statements = [
         AnnotationRemover().visit(statement) for statement in statements
     ]
-    co_varnames = list(co_varnames)
+    # `.0` is an iteration variable that appears because of comprehension
+    # inlining in Python 3.12
+    co_varnames = [x for x in co_varnames if x != ".0"]
     co_cellvars = list(co_cellvars)
     co_varnames_set = set(co_varnames)
     co_cellvars_set = set(co_cellvars)
@@ -737,7 +739,11 @@ def run_statements_helper(patcher_cell: types.CellType,
             co_varnames_new = _inner.__code__.co_varnames[1:]
         else:
             co_varnames_new = _inner.__code__.co_varnames
-        # must check original set due to a bug in Python 3.12
+        # must check original set due to a bug in comprehension inlining since
+        # Python 3.12. the bug causes co_varnames to include comprehension
+        # variables arguably incorrectly, and variables can disappear from
+        # co_varnames expectedly. See
+        # https://github.com/python/cpython/issues/121377 .
         vars_changed = False
         for varname in co_varnames_new:
             if varname not in co_varnames_set:
