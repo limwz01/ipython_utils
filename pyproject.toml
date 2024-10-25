@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ipython_utils"
+version = "0.0.1"
+authors = [
+    { name="limwz01", email="117669574+limwz01@users.noreply.github.com" },
+]
+description = "Utilities to make developing Python responsive and interactive using fully powered shells directly embedded at the target location or exception site, or dynamically reloading updated code"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "ipython>=8.10.0",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+Homepage = "https://github.com/limwz01/ipython_utils"
+Issues = "https://github.com/limwz01/ipython_utils/issues"

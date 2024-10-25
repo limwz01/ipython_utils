@@ -5,6 +5,7 @@ import ast
 import copy
 import functools
 import inspect
+import itertools
 import logging
 import operator
 import os
@@ -14,7 +15,7 @@ import types
 import warnings
 from typing import Any, Dict, List, Set
 
-L = logging.getLogger("_." + __file__)
+L = logging.getLogger("ipython_utils." + __file__)
 
 magic = "_ipy_magic"
 _ipy_magic_inner: None  # dummy to resolve IDE errors
@@ -25,7 +26,7 @@ def add_except_hook():
     sys.excepthook = excepthook
 
 
-def excepthook(etype, value, tb):
+def excepthook(etype, value, tb, logger=L):
     import inspect
     L.error("uncaught exception", exc_info=(etype, value, tb))
     records = inspect.getinnerframes(tb)
@@ -50,7 +51,7 @@ def embed(funcs: List[types.FunctionType] = None,
           **kwargs):
     """
     This is copied from IPython/terminal/embed.py but modified to allow closures
-    over local variables, and also allow additional indents in pasted code.
+    over local variables.
 
     Allowing closures over local variables is done by using a transformer added
     to shell.ast_transformers that replaces the AST completely with a call to a
@@ -94,12 +95,6 @@ def embed(funcs: List[types.FunctionType] = None,
     behaviour
     * return statements without an enclosing function does not give an error and
     the value returned is the result of the cell
-
-    Additional indents in pasted code are handled by a transformer added to
-    `shell.input_transformers_post` and will wrap the code with an `if True:`
-    statement if it detects that the code starts with a whitespace character.
-    This happens before the AST transformations and hence before the above
-    processing.
 
     :param frame: frame to get locals and globals from
     :param funcs: list of functions to get closure cells from
@@ -165,8 +160,6 @@ def embed(funcs: List[types.FunctionType] = None,
     shell = InteractiveShellEmbed.instance(
         _init_location_id='%s:%s' % (frame.f_code.co_filename, frame.f_lineno),
         **kwargs)
-    shell.input_transformers_post.append(lambda x: ["if True:\n"] + x
-                                         if x[0][:1].strip() == "" else x)
     cell_dict = {}
     if funcs:
         if isinstance(funcs, types.FunctionType):
@@ -265,8 +258,6 @@ class CollectGlobals(ast.NodeVisitor):
 def embed2(*, frame=None, header="", compile_flags=None, **kwargs):
     if frame is None:
         frame = sys._getframe(1)
-    env = dict(frame.f_globals)
-    env.update(frame.f_locals)
     # import IPython
     # IPython.start_ipython(argv=[], user_ns=env, config=config)
     from IPython.core.interactiveshell import DummyMod, InteractiveShell
@@ -305,10 +296,15 @@ def embed2(*, frame=None, header="", compile_flags=None, **kwargs):
         _init_location_id='%s:%s' % (frame.f_code.co_filename, frame.f_lineno),
         **kwargs)
 
-    env = {
-        k: v
-        for (k, v) in env.items() if k not in shell.user_ns_hidden.keys()
-    }
+    # this almost worked in place of the mocked up globals, except that setting
+    # a global in a newly created function with the global keyword did not work,
+    # probably because they made a direct call to the underlying dict "set_item"
+    # env = Glocals(frame.f_globals, {**frame.f_locals}, shell.user_ns_hidden)
+    env = {}
+    for (k, v) in itertools.chain(frame.f_globals.items(),
+                                  frame.f_locals.items()):
+        if k not in shell.user_ns_hidden.keys():
+            env[k] = v
     module = DummyMod()
     module.__dict__ = env
     InteractiveShellEmbed.mainloop = mainloop
@@ -328,6 +324,38 @@ def embed2(*, frame=None, header="", compile_flags=None, **kwargs):
     if ps1 is not None:
         sys.ps1 = ps1
         sys.ps2 = ps2
+
+
+# class Glocals(dict):
+
+#     def __init__(self, gs, ls, hidden_keys):
+#         self.gs = gs
+#         self.ls = ls
+#         self.hidden_keys = hidden_keys
+#         self.extras = {}
+
+#     def __getitem__(self, k):
+#         if k not in self.hidden_keys:
+#             if k in self.gs:
+#                 return self.gs[k]
+#             if k in self.ls:
+#                 return self.ls[k]
+#         return self.extras[k]
+
+#     def __setitem__(self, k, v):
+#         if k not in self.hidden_keys:
+#             if k in self.gs:
+#                 self.gs[k] = v
+#                 return
+#             if k in self.ls:
+#                 print("writing ls[%s]" % k)
+#                 self.ls[k] = v
+#                 return
+#         self.extras[k] = v
+
+#     def update(self, other):
+#         for k, v in other.items():
+#             self[k] = v
 
 
 def mainloop(
@@ -397,10 +425,15 @@ def mainloop(
     # data, but we also need the locals. We'll throw our hidden variables
     # like _ih and get_ipython() into the local namespace, but delete them
     # later.
+    # FIX: allow passing self.user_module.__dict__ as local_ns, resulting in
+    # the same object as self.user_ns
+    # BEGIN_FIX
+    #if local_ns is not None:
     if local_ns is self.user_module.__dict__:
         self.user_ns = local_ns
         self.init_user_ns()
     elif local_ns is not None:
+        # END_FIX
         reentrant_local_ns = {
             k: v
             for (k, v) in local_ns.items()
@@ -421,7 +454,9 @@ def mainloop(
         self.interact()
 
     # now, purge out the local namespace of IPython's hidden variables.
-    if local_ns is not None and local_ns is not self.user_ns:
+    # FIX: do not revert namespace if it was the special case
+    #if local_ns is not None:
+    if local_ns is not None and local_ns is not self.user_module.__dict__:
         local_ns.update({
             k: v
             for (k, v) in self.user_ns.items()
@@ -1157,156 +1192,3 @@ def flatten_tuple(data, structure, cache={}):
         unpacker = local_dict["unpacker"]
         cache[structure] = unpacker
     return unpacker(data)
-
-
-def main():
-    logging.basicConfig(
-        format=
-        "%(asctime)s;%(funcName)s;%(module)s;%(lineno)s;%(levelname)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.WARNING)
-    logging.getLogger("_").setLevel(logging.DEBUG)
-    L.info("script %s args %s", __file__, sys.argv)
-    script_dir = os.path.dirname(os.path.realpath(__file__))
-
-    embed()
-    test_embed()
-    test_try()
-    test_try_and_embed()
-    test_params()
-
-
-def test_embed():
-
-    x0 = 0  # not closed over
-    x1 = 1  # used only in `f`
-    x2 = 2  # used in `f` and `g`
-
-    def f(y0, y1):
-        y0: int  # not closed over
-        y1: int = y0 + y1  # used in `g`
-        nonlocal x1
-        nonlocal x2
-
-        def g():
-            nonlocal x2, y1
-            x2 += 10
-            y1 += 10
-
-        x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
-        print(x1, x2, y0, y1)
-        # passing the enclosing function allows variables from the parent scopes
-        # which were closed over to be accessed and modified (x and y)
-        # note that none of the shell will see `x0`
-        embed(funcs=[f])
-        # run: x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]; g()
-        x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
-        print(x1, x2, y0, y1)
-        # passing a closure over local variables allow the specified variables
-        # to be accessed and modified (z and w)
-        embed(funcs=[f, lambda: (y0, y1)])
-        # run: x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]; g()
-        x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
-        print(x1, x2, y0, y1)
-
-    f(3, 1)
-    print(x0, x1, x2)
-
-
-def test_try():
-
-    @try_all_statements
-    def f(x):
-        print(x)
-        # editing the below statement to `x = 1 / (x + 1)` after the exception
-        # is raised will allow it to continue
-        x = 1 / x  # (x + 1)
-        if x == 1:
-            print("x is 1")
-            return
-        assert x != 1
-        print(x)
-
-    f(1)
-    # the below raises an exception
-    f(0)
-    # subsequent calls use the modified function
-    f(1)
-    f(0)
-
-
-def test_try_and_embed():
-
-    x0 = 0  # not closed over
-    x1 = 1  # used only in `f`
-    x2 = 2  # used in `f` and `g`
-
-    @try_all_statements
-    def f(y0, y1):
-        y0: int  # not closed over
-        y1: int = y0 + y1  # used in `g`
-        nonlocal x1
-        nonlocal x2
-
-        @try_all_statements
-        def g():
-            nonlocal x2, y1
-            x2 += 10
-            y1 += 10
-
-        x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
-        print(x1, x2, y0, y1)
-        # passing the enclosing function allows variables from the parent scopes
-        # which were closed over to be accessed and modified (x and y)
-        # note that none of the shell will see `x0`
-        embed(funcs=[_ipy_magic_inner])
-        # run: x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]; g()
-        x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
-        print(x1, x2, y0, y1)
-
-    f(3, 1)
-    print(x0, x1, x2)
-
-
-def test_params():
-
-    @try_all_statements
-    def f(x0, /, x1, x2=12, *args, x3, **kwargs):
-        print(x0, x1, x2, x3, args, kwargs)
-
-    f(0, 1, x3=3)
-    f(0, 1, 2, x3=3)
-    f(0, 1, 2, 5, x3=3)
-    f(0, 1, 2, 5, x3=3, x4=4)
-
-    @try_all_statements
-    def f(x0=10, /, x1=11, x2=12, *args, x3, **kwargs):
-        print(x0, x1, x2, x3, args, kwargs)
-
-    f(x3=3)
-    f(0, x3=3)
-    f(0, 1, x3=3)
-    f(0, 1, 2, x3=3)
-    f(0, 1, 2, 5, x3=3)
-    f(0, 1, 2, 5, x3=3, x4=4)
-
-    @try_all_statements
-    def f(x0=10, /, x1=11, x2=12, *args, x3=13, **kwargs):
-        print(x0, x1, x2, x3, args, kwargs)
-
-    f(x3=3)
-    f(0, x3=3)
-    f(0, 1, x3=3)
-    f(0, 1, 2, x3=3)
-    f(0, 1, 2, 5, x3=3)
-    f(0, 1, 2, 5, x3=3, x4=4)
-    f()
-    f(0)
-    f(0, 1)
-    f(0, 1, 2)
-    f(0, 1, 2, 5)
-    f(0, 1, 2, 5, x4=4)
-
-
-if __name__ == "__main__":
-    main()
