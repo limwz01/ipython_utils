@@ -804,12 +804,7 @@ def run_statements_helper(patcher_cell: types.CellType,
         _inner: types.FunctionType = _outer(
             *[None for i in range(all_locals_len)])
         c = _inner.__code__
-        inner_code = types.CodeType(c.co_argcount, c.co_posonlyargcount,
-                                    c.co_kwonlyargcount, c.co_nlocals,
-                                    c.co_stacksize, c.co_flags, c.co_code,
-                                    c.co_consts, c.co_names, c.co_varnames,
-                                    filename, name, c.co_firstlineno,
-                                    c.co_lnotab, c.co_freevars, c.co_cellvars)
+        inner_code = c.replace(co_filename=filename, co_name=name)
         new_closure = [
             cell_dict.setdefault(x, y)
             for x, y in zip(inner_code.co_freevars, _inner.__closure__)
