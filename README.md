@@ -6,6 +6,33 @@ Utilities to make developing Python responsive and interactive using fully power
 
 Sometimes you develop a complex Python software with multiple modules and functions. Jupyter notebooks are messy and hinder refactoring into functions, encouraging bad programming practices, so you decide against using them. But there is nothing as convenient as having a shell to directly inspect the objects and having additions to your existing code applied on live objects immediately! **Now, you can!**
 
+## Installation
+
+Ever since I've packaged this and published it on PyPI (https://pypi.org/project/ipython-utils/), you can just run `pip install ipython_utils`. After installation, the following should work:
+
+```python3
+from ipython_utils import embed
+def outer_function():
+    x = 0
+    def target_function():
+        print(x)
+        y1 = 1
+        y2 = 2
+        y3 = 3
+        y4 = 4
+        def g():
+            print(y1)
+        embed() # no local variable persistence
+        embed(target_function) # x can be updated, as target_function was closed over x
+        print(x, y1, y2, y3, y4)
+        embed([target_function, g]) # y1 can also be updated, as g was closed over y1
+        print(x, y1, y2, y3, y4)
+        # we can easily force a closure over y2 and y3, and pass it to embed,
+        # allowing it to update y2 and y3
+        embed([target_function, lambda: (y2, y3)])
+    return target_function
+```
+
 ## Limited functionality in default IPython embedded shell
 
 An existing method is to call `IPython.embed()` at the end of your partially developed code. But the embedded IPython shell is quite limited, because executing dynamically compiled Python code must always have a specific `locals()` dictionary, and updates to `locals()` rarely causes an update of local variables (except perhaps in old Python versions). The default shell just has a copy of the local variables, and existing closures over them will not update the value of the copy. More importantly, all child functions and lambdas do not close over the local variables, instead leaving them as unresolved global names, which means even list comprehensions which use these [do not work](https://github.com/cknoll/ipydex/issues/3). This is shown in the small snippet below:
