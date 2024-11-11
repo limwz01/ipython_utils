@@ -1,7 +1,19 @@
+#!/usr/bin/env python3
 import logging
+import os
+import sys
 
-from ipython_utils.core import (_ipy_magic_inner, embed, embed2,
-                                try_all_statements)
+if not __package__:
+
+    def __init_package(level, splits):
+        global __package__
+        __package__ = ".".join(splits[-level:])
+        sys.path.insert(0, os.sep.join([*splits[:-level], ""]))
+
+    __init_package(2, os.path.realpath(__file__).split(os.sep)[:-1])
+
+from ..src.ipython_utils import (_ipy_magic_inner, embed, embed2,
+                                 try_all_statements)
 
 L = logging.getLogger("ipython_utils." + __file__)
 some_global = "global"
@@ -85,15 +97,12 @@ def test_embed2():
 
         x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
         print(x1, x2, y0, y1)
-        # passing the enclosing function allows variables from the parent scopes
-        # which were closed over to be accessed and modified (x1 and x2)
-        # note that none of the shell will see `x0`
+        # embed2 uses a mocked up globals object which diverges from the real
+        # globals/locals and will never be able to persist any changes
         embed2()
         # run: x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]; g()
         x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
         print(x1, x2, y0, y1)
-        # passing a closure over local variables allow the specified variables
-        # to be accessed and modified (y0 and w)
         embed2()
         # run: x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]; g()
         x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]

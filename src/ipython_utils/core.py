@@ -11,9 +11,10 @@ import operator
 import os
 import re
 import sys
+import traceback
 import types
 import warnings
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Set, TextIO
 
 L = logging.getLogger("ipython_utils." + __file__)
 
@@ -28,12 +29,12 @@ def add_except_hook():
 
 def excepthook(etype, value, tb, logger=L):
     import inspect
-    L.error("uncaught exception", exc_info=(etype, value, tb))
+    logger.error("uncaught exception", exc_info=(etype, value, tb))
     records = inspect.getinnerframes(tb)
     for record in reversed(records):
         if "/site-packages/" in record.filename:
             continue
-        L.info("frame: %s", record)
+        logger.info("frame: %s", record)
         frame = record.frame
         msg = "Entering IPython console at {0.f_code.co_filename} at line {0.f_lineno}".format(
             frame)
@@ -213,33 +214,28 @@ class FixLocals(object):
         self.magic = magic
 
     def visit(self, module_ast: ast.Module):
-        try:
-            if self.extra_globals:
-                module_ast.body.insert(
-                    0,
-                    ast.copy_location(
-                        ast.Global(names=list(self.extra_globals)),
-                        module_ast.body[0] if module_ast.body else module_ast))
-            CollectGlobals(self.extra_globals).visit(module_ast)
-            patcher_cell = types.CellType()
-            statement = module_ast.body[-1]
-            if isinstance(statement, ast.Expr):
-                module_ast.body[-1] = ast.copy_location(
-                    ast.Return(value=statement.value), statement)
-            runner = run_statements_helper(patcher_cell, module_ast.body, None,
-                                           self.magic + "_shell", None,
-                                           self.shell.user_global_ns,
-                                           list(self.cell_dict.keys()), [], [],
-                                           self.frame.f_code.co_filename, 0,
-                                           self.shell.compile.flags,
-                                           self.magic, False)
-            patched = patcher_cell.cell_contents(self.cell_dict)
-            self.shell.user_ns[self.magic + "_inner"] = patched
-            return self.shell.compile.ast_parse(self.magic + "_inner()")
-        except Exception as e:
-            L.error("error %s", e, exc_info=True)
-        # L.info("dump:\n%s", ast.dump(node))
-        return module_ast
+        if self.extra_globals:
+            module_ast.body.insert(
+                0,
+                ast.copy_location(
+                    ast.Global(names=list(self.extra_globals)),
+                    module_ast.body[0] if module_ast.body else module_ast))
+        CollectGlobals(self.extra_globals).visit(module_ast)
+        patcher_cell = types.CellType()
+        statement = module_ast.body[-1]
+        if isinstance(statement, ast.Expr):
+            module_ast.body[-1] = ast.copy_location(
+                ast.Return(value=statement.value), statement)
+        runner = run_statements_helper(patcher_cell, module_ast.body, None,
+                                        self.magic + "_shell", None,
+                                        self.shell.user_global_ns,
+                                        list(self.cell_dict.keys()), [], [],
+                                        self.frame.f_code.co_filename, 0,
+                                        self.shell.compile.flags,
+                                        self.magic, False, None)
+        patched = patcher_cell.cell_contents(self.cell_dict)
+        self.shell.user_ns[self.magic + "_inner"] = patched
+        return self.shell.compile.ast_parse(self.magic + "_inner()")
 
 
 class CollectGlobals(ast.NodeVisitor):
@@ -469,7 +465,7 @@ def mainloop(
     self.compile.flags = orig_compile_flags
 
 
-def try_all_statements(f: types.FunctionType):
+def try_all_statements(f: types.FunctionType, stream=sys.stderr):
     """
     This is a decorator to convert a function using `run_statements_helper`, and
     `try` all statements, allowing the user to modify the function on the fly or
@@ -493,7 +489,7 @@ def try_all_statements(f: types.FunctionType):
                                    f.__globals__, co_varnames,
                                    f.__code__.co_cellvars, co_freevars,
                                    filename, fmod_ast.body[0].lineno, flags,
-                                   magic, True)
+                                   magic, True, stream)
 
     f_closure = f.__closure__ or ()
     f_defaults = f.__defaults__
@@ -592,7 +588,7 @@ def run_statements_helper(patcher_cell: types.CellType,
                           qualname: str, globals: dict, co_varnames: List[str],
                           co_cellvars: List[str], co_freevars: List[str],
                           filename: str, func_line_num: int, flags: int,
-                          magic: str, to_try: bool):
+                          magic: str, to_try: bool, stream: TextIO):
     """
     If `to_try` is true, this changes a sequence of statements to a function
     that can run individual statements like so (if it hit the end of the
@@ -844,11 +840,13 @@ def run_statements_helper(patcher_cell: types.CellType,
                 if ret is not patched:
                     return ret
             except:
-                L.info("exception raised", exc_info=True)
+                traceback.print_exc(file=stream)
+                stream.flush()
                 while True:
-                    filename_new = prompt_with_default("filename", filename)
+                    filename_new = prompt_with_default("filename", filename,
+                                                       stream)
                     func_line_num_new = prompt_with_default(
-                        "function line num", func_line_num, int)
+                        "function line num", func_line_num, stream, int)
                     try:
                         with open(filename, "rb") as src_f:
                             module_src = src_f.read()
@@ -867,7 +865,8 @@ def run_statements_helper(patcher_cell: types.CellType,
                         line_nums = [s.lineno for s in statements_new]
                         # prompt for next statement line
                         next_line_num = prompt_with_default(
-                            "next statement line num", line_nums[i], int)
+                            "next statement line num", line_nums[i], stream,
+                            int)
                         use_embed = next_line_num <= 0
                         if next_line_num == 0:
                             next_line_num = line_nums[i]
@@ -895,13 +894,13 @@ def run_statements_helper(patcher_cell: types.CellType,
                             patcher_cell, statements_new, module, name,
                             qualname, globals, co_varnames, co_cellvars,
                             co_freevars, filename_new, func_line_num_new,
-                            flags, magic, True)
+                            flags, magic, True, stream)
                         # TODO: patch global functions
                         patched_new = patcher_cell.cell_contents(cell_dict)
                         break
                     except:
-                        L.error("error in setting up new function",
-                                exc_info=True)
+                        traceback.print_exc(file=stream)
+                        stream.flush()
                 # finally run the new wrapper
                 return runner_new(patched_new, next_i, cell_dict)
         return None
@@ -1083,10 +1082,11 @@ def recompile(source,
     return c0
 
 
-def prompt_with_default(prompt, def_val, transform=(lambda x: x)):
+def prompt_with_default(prompt, def_val, stream, transform=(lambda x: x)):
 
     while True:
-        input_str = input("%s [%s]:" % (prompt, def_val))
+        print("%s [%s]: " % (prompt, def_val), file=stream, end="", flush=True)
+        input_str = input()
         if input_str == "":
             return def_val
         try:
