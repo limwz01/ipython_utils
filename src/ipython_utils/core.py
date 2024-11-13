@@ -180,20 +180,7 @@ def embed(funcs: List[types.FunctionType] = None,
     shell = InteractiveShellEmbed.instance(
         _init_location_id='%s:%s' % (frame.f_code.co_filename, frame.f_lineno),
         **kwargs)
-    cell_dict = {}
-    if funcs:
-        if isinstance(funcs, types.FunctionType):
-            func = funcs
-            if func.__closure__:
-                for name, val in zip(func.__code__.co_freevars,
-                                     func.__closure__):
-                    cell_dict[name] = val
-        else:
-            for func in funcs:
-                if func.__closure__:
-                    for name, val in zip(func.__code__.co_freevars,
-                                         func.__closure__):
-                        cell_dict[name] = val
+    cell_dict = get_cell_dict_from_funcs(funcs)
     for k, v in frame.f_locals.items():
         if k not in cell_dict:
             cell_dict[k] = types.CellType(v)
@@ -563,6 +550,29 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
 
     wrapper.__wrapped__ = None
     return wrapper
+
+
+def get_cell_dict_from_funcs(funcs):
+    """
+    get cell_dict from the closures of provided funcs
+    :param funcs: functions
+    :return: cell_dict
+    """
+    cell_dict: Dict[str, types.CellType] = {}
+    if funcs:
+        if isinstance(funcs, types.FunctionType):
+            func = funcs
+            if func.__closure__:
+                for name, val in zip(func.__code__.co_freevars,
+                                     func.__closure__):
+                    cell_dict[name] = val
+        else:
+            for func in funcs:
+                if func.__closure__:
+                    for name, val in zip(func.__code__.co_freevars,
+                                         func.__closure__):
+                        cell_dict[name] = val
+    return cell_dict
 
 
 class TryBlockTransformer(ast.NodeTransformer):
