@@ -25,7 +25,7 @@ def main():
         "%(asctime)s;%(funcName)s;%(module)s;%(lineno)s;%(levelname)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
         level=logging.WARNING)
-    logging.getLogger("_").setLevel(logging.DEBUG)
+    logging.getLogger("ipython_utils").setLevel(logging.DEBUG)
     L.info("script %s args %s", __file__, sys.argv)
     script_dir = os.path.dirname(os.path.realpath(__file__))
 
