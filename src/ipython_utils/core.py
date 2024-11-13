@@ -49,6 +49,8 @@ def get_except_hook(logger):
         for record in reversed(records):
             if "/site-packages/" in record.filename:
                 continue
+            if record.filename.startswith("pandas/_libs/"):
+                continue
             logger.info("frame: %s", record)
             frame = record.frame
             msg = "Entering IPython console at {0.f_code.co_filename} at line {0.f_lineno}".format(
