@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ipython_utils"
-version = "0.1.2"
+version = "0.2.0"
 authors = [
     { name="limwz01", email="117669574+limwz01@users.noreply.github.com" },
 ]
