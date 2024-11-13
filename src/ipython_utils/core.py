@@ -23,25 +23,42 @@ _ipy_magic_inner: None  # dummy to resolve IDE errors
 globals()[magic + "_inner"] = lambda: None
 
 
-def add_except_hook():
-    sys.excepthook = excepthook
+def add_except_hook(logger=L):
+    """
+    add exception hook, which will embed a shell when an exception is raised
+    """
+    sys.excepthook = get_except_hook(logger)
 
 
-def excepthook(etype, value, tb, logger=L):
-    import inspect
-    logger.error("uncaught exception", exc_info=(etype, value, tb))
-    records = inspect.getinnerframes(tb)
-    for record in reversed(records):
-        if "/site-packages/" in record.filename:
-            continue
-        logger.info("frame: %s", record)
-        frame = record.frame
-        msg = "Entering IPython console at {0.f_code.co_filename} at line {0.f_lineno}".format(
-            frame)
-        savehook = sys.excepthook  # save the exception hook
-        embed(header=msg, frame=frame)
-        sys.excepthook = savehook  # reset IPython's change to the exception hook
-        break
+def get_except_hook(logger):
+    """
+    get exception hook to embed a shell when an exception is raised
+    :param logger: use this logger to print exceptions and info
+    """
+
+    def excepthook(etype, value, tb):
+        """
+        exception hook to embed a shell when an exception is raised
+        :param etype: exception type
+        :param value: exception
+        :param tb: traceback
+        """
+        import inspect
+        logger.error("uncaught exception", exc_info=(etype, value, tb))
+        records = inspect.getinnerframes(tb)
+        for record in reversed(records):
+            if "/site-packages/" in record.filename:
+                continue
+            logger.info("frame: %s", record)
+            frame = record.frame
+            msg = "Entering IPython console at {0.f_code.co_filename} at line {0.f_lineno}".format(
+                frame)
+            savehook = sys.excepthook  # save the exception hook
+            embed(header=msg, frame=frame)
+            sys.excepthook = savehook  # reset IPython's change to the exception hook
+            break
+
+    return excepthook
 
 
 def embed(funcs: List[types.FunctionType] = None,
