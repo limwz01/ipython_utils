@@ -181,8 +181,10 @@ def embed(funcs: List[types.FunctionType] = None,
         _init_location_id='%s:%s' % (frame.f_code.co_filename, frame.f_lineno),
         **kwargs)
     cell_dict = get_cell_dict_from_funcs(funcs)
+    write_back_vars = []
     for k, v in frame.f_locals.items():
         if k not in cell_dict:
+            write_back_vars.append(k)
             cell_dict[k] = types.CellType(v)
     extra_globals = set()
     shell.ast_transformers.append(
@@ -206,6 +208,8 @@ def embed(funcs: List[types.FunctionType] = None,
     if ps1 is not None:
         sys.ps1 = ps1
         sys.ps2 = ps2
+    update_locals({k: cell_dict[k].cell_contents
+                   for k in write_back_vars}, frame)
 
 
 class FixLocals(object):
@@ -326,6 +330,7 @@ def embed2(*, frame=None, header="", compile_flags=None, **kwargs):
     if ps1 is not None:
         sys.ps1 = ps1
         sys.ps2 = ps2
+    update_locals({k: env[k] for k in frame.f_locals}, frame)
 
 
 # class Glocals(dict):
@@ -1122,6 +1127,37 @@ def prompt_with_default(prompt, def_val, stream, transform=(lambda x: x)):
             return transform(input_str)
         except:
             pass
+
+
+def update_locals(ls, target_frame=None):
+    """
+    schedules an update to the locals of the target frame (caller's frame by
+    default) using `sys.settrace`
+
+    :param ls: locals dictionary with updated values
+    :param target_frame: target frame
+    """
+    if target_frame is None:
+        target_frame = sys._getframe(1)
+    old_f_trace = target_frame.f_trace
+    old_trace = sys.gettrace()
+
+    def trace_dummy(frame, event, arg):
+        return None
+
+    def update_locals_helper(frame, event, arg):
+        if frame is target_frame:
+            try:
+                # must not get frame.f_locals after update
+                f_locals = frame.f_locals
+                f_locals.update(ls)
+            except:
+                pass
+            sys.settrace(old_trace)
+            frame.f_trace = old_f_trace
+
+    target_frame.f_trace = update_locals_helper
+    sys.settrace(trace_dummy)
 
 
 def run_func(it=None, structure=1, *args, **kwargs):
