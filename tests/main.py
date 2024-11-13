@@ -3,17 +3,11 @@ import logging
 import os
 import sys
 
-if not __package__:
-
-    def __init_package(level, splits):
-        global __package__
-        __package__ = ".".join(splits[-level:])
-        sys.path.insert(0, os.sep.join([*splits[:-level], ""]))
-
-    __init_package(2, os.path.realpath(__file__).split(os.sep)[:-1])
-
-from ..src.ipython_utils import (_ipy_magic_inner, embed, embed2,
-                                 try_all_statements)
+sys.path.insert(
+    0,
+    os.path.normpath(
+        os.path.join(os.path.dirname(os.path.realpath(__file__)), "../src")))
+from ipython_utils import (_ipy_magic_inner, embed, embed2, try_all_statements)
 
 L = logging.getLogger("ipython_utils." + __file__)
 some_global = "global"
