@@ -43,7 +43,8 @@ def get_except_hook(logger):
         :param tb: traceback
         """
         import inspect
-        logger.error("uncaught exception", exc_info=(etype, value, tb))
+        exc_info = (etype, value, tb)
+        logger.error("uncaught exception", exc_info=exc_info)
         records = inspect.getinnerframes(tb)
         for record in reversed(records):
             if "/site-packages/" in record.filename:
@@ -55,7 +56,9 @@ def get_except_hook(logger):
             msg = "Entering IPython console at {0.f_code.co_filename} at line {0.f_lineno}".format(
                 frame)
             savehook = sys.excepthook  # save the exception hook
-            embed(header=msg, frame=frame)
+            embed(header=msg,
+                  frame=frame,
+                  extra_locals={magic + "_exc": exc_info})
             sys.excepthook = savehook  # reset IPython's change to the exception hook
             break
 
@@ -65,6 +68,7 @@ def get_except_hook(logger):
 def embed(funcs: List[types.FunctionType] = None,
           *,
           frame=None,
+          extra_locals=None,
           header="",
           compile_flags=None,
           **kwargs):
@@ -117,6 +121,7 @@ def embed(funcs: List[types.FunctionType] = None,
 
     :param frame: frame to get locals and globals from
     :param funcs: list of functions to get closure cells from
+    :param extra_locals: extra variable -> value dict to add to locals
 
     --- original docs below ---
 
@@ -184,6 +189,11 @@ def embed(funcs: List[types.FunctionType] = None,
     for k, v in frame.f_locals.items():
         if k not in cell_dict:
             write_back_vars.append(k)
+            cell_dict[k] = types.CellType(v)
+    # the following allows something like `_ipy_magic_shell.keep_running = False`
+    cell_dict[magic + "_shell"] = types.CellType(shell)
+    if extra_locals:
+        for k, v in extra_locals:
             cell_dict[k] = types.CellType(v)
     extra_globals = set()
     shell.ast_transformers.append(
@@ -322,6 +332,7 @@ def embed2(*, frame=None, header="", compile_flags=None, **kwargs):
                                   frame.f_locals.items()):
         if k not in shell.user_ns_hidden.keys():
             env[k] = v
+    env[magic + "_shell"] = shell
     module = DummyMod()
     module.__dict__ = env
     InteractiveShellEmbed.mainloop = mainloop

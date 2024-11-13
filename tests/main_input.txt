@@ -1,0 +1,74 @@
+		_ipy_magic_shell.keep_running = False
+		_ipy_magic_shell.keep_running = False
+        def h1():
+            nonlocal x1, x2, y0, y1, y2
+            print("in h1", x1, x2, y0, y1, y2)
+            x1, x2, y0, y1, y2 = [x + 10 for x in [x1, x2, y0, y1, y2]]
+        x1, x2, y0, y1, y2 = [x + 100 for x in [x1, x2, y0, y1, y2]]
+        print("before g", x1, x2, y0, y1, y2)
+        g()
+        print("after g", x1, x2, y0, y1, y2)
+        h1()
+        print("after h1", x1, x2, y0, y1, y2)
+		_ipy_magic_shell.keep_running = False
+        def h2():
+            nonlocal x1, x2, y0, y1, y2
+            print("in h2", x1, x2, y0, y1, y2)
+            x1, x2, y0, y1, y2 = [x + 10 for x in [x1, x2, y0, y1, y2]]
+        x1, x2, y0, y1, y2 = [x + 100 for x in [x1, x2, y0, y1, y2]]
+        print("before g", x1, x2, y0, y1, y2)
+        g()
+        print("after g", x1, x2, y0, y1, y2)
+        h1()
+        print("after h1", x1, x2, y0, y1, y2)
+        h2()
+        print("after h2", x1, x2, y0, y1, y2)
+		_ipy_magic_shell.keep_running = False
+        def h3():
+            nonlocal x1, x2, y0, y1, y2
+            print("in h3", x1, x2, y0, y1, y2)
+            x1, x2, y0, y1, y2 = [x + 10 for x in [x1, x2, y0, y1, y2]]
+        x1, x2, y0, y1, y2 = [x + 100 for x in [x1, x2, y0, y1, y2]]
+        print("before g", x1, x2, y0, y1, y2)
+        g()
+        print("after g", x1, x2, y0, y1, y2)
+        h1()
+        print("after h1", x1, x2, y0, y1, y2)
+        h2()
+        print("after h2", x1, x2, y0, y1, y2)
+        h3()
+        print("after h3", x1, x2, y0, y1, y2)
+		_ipy_magic_shell.keep_running = False
+        def h1():
+            global x1, x2, y0, y1
+            print("in h1", x1, x2, y0, y1)
+            x1, x2, y0, y1 = [x + 10 for x in [x1, x2, y0, y1]]
+        x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
+        print("before g", x1, x2, y0, y1)
+        g()
+        print("after g", x1, x2, y0, y1)
+        h1()
+        print("after h1", x1, x2, y0, y1)
+		_ipy_magic_shell.keep_running = False
+        def h2():
+            global x1, x2, y0, y1
+            print("in h2", x1, x2, y0, y1)
+            x1, x2, y0, y1 = [x + 10 for x in [x1, x2, y0, y1]]
+        x1, x2, y0, y1 = [x + 100 for x in [x1, x2, y0, y1]]
+        print("before g", x1, x2, y0, y1)
+        g()
+        print("after g", x1, x2, y0, y1)
+        h1()
+        print("after h1", x1, x2, y0, y1)
+        h2()
+        print("after h2", x1, x2, y0, y1)
+		_ipy_magic_shell.keep_running = False
+		0
+		x = 1
+		_ipy_magic_shell.keep_running = False
+
+		0
+		x = 1
+		_ipy_magic_shell.keep_running = False
+
+		_ipy_magic_shell.keep_running = False
