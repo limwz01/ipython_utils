@@ -703,11 +703,13 @@ def run_statements_helper(patcher_cell: types.CellType,
     to future recursive calls, the original wrapper can be updated with the
     patched function as it will use this cell's contents as the patcher.
 
-    If the user enters a negative number `-x` for the next statement line, an
-    embedded shell will be injected into the statement at line `x`, after which
-    a raise will once again drop it back here. The special case of `0` is
-    treated as `-x` where `x` is the default next statement line (the line of
-    the statement which failed).
+    The continuation point is specified as follows:
+    `[[<filename>;]<func_line_num>;]<next_statement_line_num>`. If the user
+    enters a negative number `-x` for the next statement line, an embedded shell
+    will be injected into the statement at line `x`, after which a raise will
+    once again drop it back here. The special case of `0` is treated as `-x`
+    where `x` is the default next statement line (the line of the statement
+    which failed). If just a semicolon is given, the exception is re-raised.
 
     General Info:
     If `f` is a function, then
@@ -764,9 +766,10 @@ def run_statements_helper(patcher_cell: types.CellType,
     while True:
         # L.info("%s", f'{co_varnames=} {co_cellvars=} {co_freevars=}')
         # co_cellvars might be repeated in co_varnames if it is a parameter
-        all_locals = co_varnames + [
-            x for x in co_cellvars if x not in co_varnames_set
-        ] + list(co_freevars)
+        all_locals = [
+            *co_varnames,
+            *[x for x in co_cellvars if x not in co_varnames_set], *co_freevars
+        ]
         # if func uses more nonlocal variables (more bindings from outer
         # functions), the below will throw an error when compiled, otherwise we
         # can update the list of all locals
@@ -774,9 +777,10 @@ def run_statements_helper(patcher_cell: types.CellType,
         if to_try:
             module_ast = ast.parse("""
                 def {0}_outer({1}):
+                    {0}_embed = None
                     {2}del {1}
                     def {0}_inner({0}_i):
-                        nonlocal {0}_inner
+                        nonlocal {0}_inner, {0}_embed
                         {2}nonlocal {1}
                         if {0}_i == 0:
                             return {0}_inner
@@ -784,7 +788,7 @@ def run_statements_helper(patcher_cell: types.CellType,
             """.strip().format(magic, ",".join(all_locals),
                                "" if len(all_locals) else "pass # "))
             outer_ast: ast.FunctionDef = module_ast.body[0]
-            inner_ast: ast.FunctionDef = outer_ast.body[1]
+            inner_ast: ast.FunctionDef = outer_ast.body[2]
             if_ast_template: ast.If = inner_ast.body.pop()
             if_asts = []
             for i, statement in enumerate(statements):
@@ -799,15 +803,16 @@ def run_statements_helper(patcher_cell: types.CellType,
         else:
             module_ast = ast.parse("""
                 def {0}_outer({1}):
+                    {0}_embed = None
                     {2}del {1}
                     def {0}_inner():
-                        nonlocal {0}_inner
+                        nonlocal {0}_inner, {0}_embed
                         {2}nonlocal {1}
                     return {0}_inner
             """.strip().format(magic, ",".join(all_locals),
                                "" if len(all_locals) else "pass # "))
             outer_ast: ast.FunctionDef = module_ast.body[0]
-            inner_ast: ast.FunctionDef = outer_ast.body[1]
+            inner_ast: ast.FunctionDef = outer_ast.body[2]
             inner_ast.body.extend(statements)
         # execute definition of `_outer` with empty locals and correct globals
         local_dict = {}
@@ -868,6 +873,7 @@ def run_statements_helper(patcher_cell: types.CellType,
                                      argdefs=None,
                                      closure=tuple(new_closure))
         cell_dict[magic + "_inner"].cell_contents = patched
+        cell_dict[magic + "_embed"].cell_contents = embed
         if module:
             patched.__module__ = module
         if qualname:
@@ -896,34 +902,50 @@ def run_statements_helper(patcher_cell: types.CellType,
                 ret = patched(i)
                 if ret is not patched:
                     return ret
-            except:
+            except Exception as e:
                 traceback.print_exc(file=stream)
                 stream.flush()
                 while True:
-                    filename_new = prompt_with_default("filename", filename,
-                                                       stream)
-                    func_line_num_new = prompt_with_default(
-                        "function line num", func_line_num, stream, int)
                     try:
-                        with open(filename, "rb") as src_f:
-                            module_src = src_f.read()
-                        # get AST using flag PyCF_ONLY_AST
-                        module_ast: ast.Module = compile(module_src,
-                                                         filename,
-                                                         "exec",
-                                                         flags
-                                                         | ast.PyCF_ONLY_AST,
-                                                         dont_inherit=True)
-                        # retrieve function at specified line
-                        helper = GetFuncAtLine(func_line_num_new)
-                        func_ast: ast.FunctionDef = helper.visit(module_ast)
-                        # get all statements in function
-                        statements_new = func_ast.body
+                        statements_new = get_func_statements(
+                            filename, func_line_num, flags)
                         line_nums = [s.lineno for s in statements_new]
-                        # prompt for next statement line
-                        next_line_num = prompt_with_default(
-                            "next statement line num", line_nums[i], stream,
-                            int)
+                        next_line_num = line_nums[i] if i < len(
+                            line_nums) else 0
+                    except:
+                        next_line_num = 0
+                    try:
+                        resp = prompt_with_default(
+                            "next statement", "%s;%d;%d" %
+                            (filename, func_line_num, next_line_num),
+                            stream).split(";", 2)
+                    except:
+                        traceback.print_exc(file=stream)
+                        stream.flush()
+                        continue
+                    if resp[0] == "":
+                        raise e
+                    try:
+                        filename_new = filename if len(resp) < 3 else resp[-3]
+                        func_line_num_new = func_line_num if len(
+                            resp) < 2 else int(resp[-2])
+                        next_line_num = int(resp[-1])
+                    except:
+                        traceback.print_exc(file=stream)
+                        stream.flush()
+                        continue
+                    try:
+                        statements_new = get_func_statements(
+                            filename_new, func_line_num_new, flags)
+                    except:
+                        if next_line_num != 0:
+                            traceback.print_exc(file=stream)
+                            stream.flush()
+                            continue
+                        statements_new = get_func_statements(
+                            None, 1, flags, "def _():\n" + " pass\n" * (i + 1))
+                    try:
+                        line_nums = [s.lineno for s in statements_new]
                         use_embed = next_line_num <= 0
                         if next_line_num == 0:
                             next_line_num = line_nums[i]
@@ -1025,6 +1047,35 @@ class AnnotationRemover(ast.NodeTransformer):
                 Assign(targets=[super().generic_visit(node.target)],
                        value=subscript))
         return self.generic_visit(node)
+
+
+def get_func_statements(filename: str,
+                        func_line_num: int,
+                        flags: int,
+                        module_src: str = None):
+    """
+    get statements of function at line of source code
+    :param module_src: module source code
+    :param func_line_num: function line number
+    :return: statements in function
+    """
+    if filename:
+        with open(filename, "rb") as src_f:
+            module_src = src_f.read()
+    else:
+        filename = "<string>"
+    # get AST using flag PyCF_ONLY_AST
+    module_ast: ast.Module = compile(module_src,
+                                     filename,
+                                     "exec",
+                                     flags
+                                     | ast.PyCF_ONLY_AST,
+                                     dont_inherit=True)
+    # retrieve function at specified line
+    helper = GetFuncAtLine(func_line_num)
+    func_ast: ast.FunctionDef = helper.visit(module_ast)
+    # get all statements in function
+    return func_ast.body
 
 
 class GetFuncAtLine(ast.NodeVisitor):
