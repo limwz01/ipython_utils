@@ -8,7 +8,6 @@ import inspect
 import itertools
 import logging
 import operator
-import os
 import re
 import sys
 import traceback
@@ -213,6 +212,9 @@ def embed(funcs: List[types.FunctionType] = None,
 
 
 class FixLocals(object):
+    """
+    use the helper to generate an inner closure with all the locals
+    """
 
     def __init__(self, shell, frame: types.FrameType,
                  cell_dict: Dict[str, types.CellType], extra_globals: Set[str],
@@ -237,18 +239,21 @@ class FixLocals(object):
             module_ast.body[-1] = ast.copy_location(
                 ast.Return(value=statement.value), statement)
         runner = run_statements_helper(patcher_cell, module_ast.body, None,
-                                        self.magic + "_shell", None,
-                                        self.shell.user_global_ns,
-                                        list(self.cell_dict.keys()), [], [],
-                                        self.frame.f_code.co_filename, 0,
-                                        self.shell.compile.flags,
-                                        self.magic, False, None)
+                                       self.magic + "_shell", None,
+                                       self.shell.user_global_ns,
+                                       list(self.cell_dict.keys()), [], [],
+                                       self.frame.f_code.co_filename, 0,
+                                       self.shell.compile.flags, self.magic,
+                                       False, None)
         patched = patcher_cell.cell_contents(self.cell_dict)
         self.shell.user_ns[self.magic + "_inner"] = patched
         return self.shell.compile.ast_parse(self.magic + "_inner()")
 
 
 class CollectGlobals(ast.NodeVisitor):
+    """
+    collect all variables in global statements
+    """
 
     def __init__(self, found_globals: Set[str]):
         super().__init__()
@@ -262,6 +267,12 @@ class CollectGlobals(ast.NodeVisitor):
 
 
 def embed2(*, frame=None, header="", compile_flags=None, **kwargs):
+    """
+    embed a shell using the mocked-up globals method (not as powerful)
+    :param frame: frame to use 
+    :param header: header to display when starting the shell
+    :param compile_flags: flags used to compile interactive code
+    """
     if frame is None:
         frame = sys._getframe(1)
     # import IPython
@@ -372,7 +383,14 @@ def mainloop(
     stack_depth=0,
     compile_flags=None,
 ):
-    """Embeds IPython into a running python program.
+    """
+    copied from IPython/terminal/embed.py but modified to allow a mocked-up
+    globals to be used as both globals and locals, causing exec to behave
+    correctly
+
+    --- original docs below ---
+
+    Embeds IPython into a running python program.
 
     Parameters
     ----------
@@ -484,6 +502,7 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
     for more details. The wrapper is created by filling in the cells in
     `cell_dict` with the argument values.
     :param f: function to decorate
+    :param stream: stream to use to print exception and retry info
     :return: wrapped function
     """
     (source, filename, flags, func_line_num,
@@ -501,7 +520,6 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
                                    f.__code__.co_cellvars, co_freevars,
                                    filename, fmod_ast.body[0].lineno, flags,
                                    magic, True, stream)
-
     f_closure = f.__closure__ or ()
     f_defaults = f.__defaults__
     f_kwdefaults = f.__kwdefaults__
@@ -581,6 +599,10 @@ def get_cell_dict_from_funcs(funcs):
 
 
 class TryBlockTransformer(ast.NodeTransformer):
+    """
+    meant to allow recursive application of try_all_statements within code
+    blocks (abandoned)
+    """
 
     def __init__(self):
         self.flag = False
@@ -724,6 +746,7 @@ def run_statements_helper(patcher_cell: types.CellType,
     :param flags: function flags
     :param magic: the magic string to use
     :param to_try: True iff exceptions from every statement is to be caught
+    :param stream: if to_try, use stream to print exception and retry info
     :return: runner
         runner(patched, start_i, cell_dict): runs statements from index
         `start_i` after specialising with the `patcher` and `cell_dict`
@@ -906,19 +929,10 @@ def run_statements_helper(patcher_cell: types.CellType,
                             next_line_num = line_nums[i]
                         elif next_line_num < 0:
                             next_line_num = -next_line_num
-                        next_i = [
-                            i for i, num in enumerate(line_nums)
-                            if num == next_line_num
-                        ][0]
+                        next_i = line_nums.index(next_line_num)
                         if use_embed:
-                            magic_embed = magic + "_embed"
-                            if magic_embed not in co_varnames_set:
-                                co_varnames.append(magic_embed)
-                                co_varnames_set.add(magic_embed)
-                            if magic_embed not in cell_dict:
-                                cell_dict[magic_embed] = types.CellType(embed)
                             statement_orig = statements_new[next_i]
-                            statement_new: ast.With = ast.parse(
+                            statement_new: ast.If = ast.parse(
                                 "if True:\n {0}_embed(funcs=[{0}_inner])\n raise"
                                 .format(magic)).body[0]
                             statements_new[next_i] = ast.copy_location(
@@ -1014,6 +1028,9 @@ class AnnotationRemover(ast.NodeTransformer):
 
 
 class GetFuncAtLine(ast.NodeVisitor):
+    """
+    visits AST to figure out what function is at a certain line
+    """
 
     def __init__(self, func_line_num):
         super().__init__()
@@ -1046,7 +1063,11 @@ PyCF_MASK = functools.reduce(operator.or_,
 
 
 def uncompile(c: types.CodeType):
-    """uncompile(codeobj) -> (source, filename, flags, func_line_num, private_prefix)."""
+    """
+    "uncompile" code object by getting the source lines
+    :param c: code object
+    :return: source, filename, flags, func_line_num, private_prefix
+    """
     if c.co_name == "<lambda>":
         raise NotImplementedError("Lambda functions not supported")
     if c.co_filename == "<string>":
@@ -1078,8 +1099,17 @@ def parse_snippet(source: str,
                   mode: str,
                   flags: int,
                   firstlineno: int,
-                  privateprefix_ignored: str = None) -> ast.Module:
-    """Like ast.parse, but accepts indented code snippet with a line number offset."""
+                  privateprefix: str = None) -> ast.Module:
+    """
+    like ast.parse, but accepts indented code snippet with a line number offset
+    :param source: source code
+    :param filename: filename
+    :param mode: mode
+    :param flags: flags
+    :param firstlineno: first line number
+    :param privateprefix: private prefix (unused)
+    :return: parsed AST
+    """
     args = filename, mode, flags | ast.PyCF_ONLY_AST, True
     prefix = "\n"
     try:
@@ -1100,7 +1130,18 @@ def recompile(source,
               flags=0,
               firstlineno=1,
               privateprefix=None):
-    """Recompile output of uncompile back to a code object. Source may also be preparsed AST."""
+    """
+    recompile output of uncompile back to a code object. source may also be
+    preparsed AST.
+    :param source: source code
+    :param filename: filename
+    :param mode: mode
+    :param flags: flags
+    :param firstlineno: first line number
+    :param privateprefix: private prefix (unused)
+    :raises RuntimeError: when failed to parse
+    :return: compiled code
+    """
     if isinstance(source, ast.AST):
         a = source
     else:
@@ -1117,6 +1158,16 @@ def recompile(source,
 
 
 def prompt_with_default(prompt, def_val, stream, transform=(lambda x: x)):
+    """
+    prompts for input with default value and retries until transform does not
+    raise an exception
+
+    :param prompt: prompt to use
+    :param def_val: default value
+    :param stream: stream to use
+    :param transform: transform function
+    :return: transformed value
+    """
 
     while True:
         print("%s [%s]: " % (prompt, def_val), file=stream, end="", flush=True)
@@ -1219,6 +1270,16 @@ def run_func(it=None, structure=1, *args, **kwargs):
 
 
 def flatten_tuple(data, structure, cache={}):
+    """
+    constructs a flattened tuple by JIT compilation of destructuring code, for
+    e.g. the structure ((3,), (2,), (3,)) will destructure tuples that look like
+    ((1, 2, 3), (4, 5), (6, 7, 8))
+
+    :param data: original (nested) tuple
+    :param structure: structure of the tuple
+    :param cache: cache to store JIT compilations
+    :return: flattened tuple
+    """
     if not (unpacker := cache.get(structure)):
 
         def get_unstruct(structure, n_vars):

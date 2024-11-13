@@ -197,6 +197,6 @@ We provide a magic variable `_ipy_magic_inner` to access the inner function whic
 @try_all_statements
 def f():
     # ...
-    embed(funcs=[_ipy_magic_inner])
+    embed(_ipy_magic_inner)
     # changes to local variables will be persistent
 ```
