@@ -1537,3 +1537,23 @@ def flatten_tuple(data, structure, cache={}):
         unpacker = local_dict["unpacker"]
         cache[structure] = unpacker
     return unpacker(data)
+
+
+def reload_module(module_str, other_globals_list=None):
+    import importlib
+    cur_module = sys.modules[module_str]
+    orig_mapping = {id(x): k for k, x in cur_module.__dict__.items()}
+    all_mappings = []
+    if other_globals_list is None:
+        other_globals_list = [sys._getframe(1).f_globals]
+    elif not isinstance(other_globals_list, list):
+        other_globals_list = [other_globals_list]
+    for gs in other_globals_list:
+        for k2, x in gs.items():
+            k = orig_mapping.get(id(x))
+            if k is not None:
+                all_mappings.append((gs, k2, k))
+    new_module_gs = importlib.reload(cur_module).__dict__
+    for gs, k2, k in all_mappings:
+        if k in new_module_gs:
+            gs[k2] = new_module_gs[k]
