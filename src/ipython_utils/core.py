@@ -13,7 +13,7 @@ import sys
 import traceback
 import types
 import warnings
-from typing import Any, Dict, List, Set, TextIO
+from typing import Any, Dict, List, Set, TextIO, Union
 
 L = logging.getLogger("ipython_utils." + __file__)
 
@@ -65,10 +65,10 @@ def get_except_hook(logger):
     return excepthook
 
 
-def embed(funcs: List[types.FunctionType] = None,
+def embed(funcs: Union[List[types.FunctionType], types.FunctionType] = None,
           *,
-          frame=None,
-          extra_locals=None,
+          frame: types.FrameType = None,
+          extra_locals: Dict[str, Any] = None,
           header="",
           compile_flags=None,
           **kwargs):
@@ -119,8 +119,8 @@ def embed(funcs: List[types.FunctionType] = None,
     * return statements without an enclosing function does not give an error and
     the value returned is the result of the cell
 
-    :param frame: frame to get locals and globals from
     :param funcs: list of functions to get closure cells from
+    :param frame: frame to get locals and globals from
     :param extra_locals: extra variable -> value dict to add to locals
 
     --- original docs below ---
@@ -248,7 +248,7 @@ class FixLocals(object):
         if isinstance(statement, ast.Expr):
             module_ast.body[-1] = ast.copy_location(
                 ast.Return(value=statement.value), statement)
-        runner = run_statements_helper(patcher_cell, module_ast.body, None,
+        run_statements_helper(patcher_cell, module_ast.body, None,
                                        self.magic + "_shell", None,
                                        self.shell.user_global_ns,
                                        list(self.cell_dict.keys()), [], [],
@@ -586,7 +586,8 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
     return wrapper
 
 
-def get_cell_dict_from_funcs(funcs):
+def get_cell_dict_from_funcs(funcs: Union[List[types.FunctionType],
+                                          types.FunctionType]):
     """
     get cell_dict from the closures of provided funcs
     :param funcs: functions
@@ -806,7 +807,6 @@ def run_statements_helper(patcher_cell: types.CellType,
                 if_ast = copy.deepcopy(if_ast_template)
                 # make it compare `_i` with the real statement index
                 if_ast.test.comparators[0].value = i
-                return_ast: ast.Return = if_ast.body[0]
                 if_ast.body.insert(0, statement)
                 if_asts.append(if_ast)
             # add all the if statements to the body of `_inner`
@@ -895,14 +895,16 @@ def run_statements_helper(patcher_cell: types.CellType,
 
     if not to_try:
 
-        def runner(patched, start_i: int, cell_dict: Dict[str,
-                                                          types.CellType]):
-            for i in range(start_i, len(statements)):
-                # L.info("running statement %d", i)
-                ret = patched(i)
-            return ret
+        # # currently not used
+        # def runner(patched, start_i: int, cell_dict: Dict[str,
+        #                                                   types.CellType]):
+        #     for i in range(start_i, len(statements)):
+        #         # L.info("running statement %d", i)
+        #         ret = patched(i)
+        #     return ret
 
-        return runner
+        # return runner
+        return None
 
     # construct runner
     def runner(patched, start_i: int, cell_dict: Dict[str, types.CellType]):
