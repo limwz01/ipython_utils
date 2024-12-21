@@ -184,25 +184,10 @@ def embed(funcs: Union[List[types.FunctionType], types.FunctionType] = None,
     shell = InteractiveShellEmbed.instance(
         _init_location_id='%s:%s' % (frame.f_code.co_filename, frame.f_lineno),
         **kwargs)
-    cell_dict = get_cell_dict_from_funcs(funcs)
-    write_back_vars = []
-    for k, v in frame.f_locals.items():
-        if k not in cell_dict:
-            write_back_vars.append(k)
-            cell_dict[k] = types.CellType(v)
-    # the following allows something like `_ipy_magic_shell.keep_running = False`
-    cell_dict[magic + "_shell"] = types.CellType(shell)
-    if extra_locals:
-        for k, v in extra_locals:
-            cell_dict[k] = types.CellType(v)
-    extra_globals = set()
-    shell.ast_transformers.append(
-        FixLocals(shell, frame, cell_dict, extra_globals, magic))
-    from IPython.core.interactiveshell import DummyMod
-    module = DummyMod()
-    module.__dict__ = frame.f_globals
+    local_ns, module, cell_dict, write_back_vars = setup_embedded_shell(
+        shell, funcs, frame, extra_locals)
     shell(header=header,
-          local_ns=frame.f_locals,
+          local_ns=local_ns,
           module=module,
           compile_flags=compile_flags,
           _call_location_id='%s:%s' %
@@ -219,6 +204,101 @@ def embed(funcs: Union[List[types.FunctionType], types.FunctionType] = None,
         sys.ps2 = ps2
     update_locals({k: cell_dict[k].cell_contents
                    for k in write_back_vars}, frame)
+
+
+def embed_kernel(funcs: Union[List[types.FunctionType],
+                              types.FunctionType] = None,
+                 *,
+                 frame: types.FrameType = None,
+                 extra_locals: Dict[str, Any] = None,
+                 **kwargs):
+    """
+    This is copied from ipykernel/embed.py but modified to allow closures
+    over local variables. See `embed` for full documentation.
+
+    :param funcs: list of functions to get closure cells from
+    :param frame: frame to get locals and globals from
+    :param extra_locals: extra variable -> value dict to add to locals
+
+    --- original docs below ---
+
+    Embed and start an IPython kernel in a given scope.
+
+    Parameters
+    ----------
+    module : ModuleType, optional
+        The module to load into IPython globals (default: caller)
+    local_ns : dict, optional
+        The namespace to load into IPython user namespace (default: caller)
+    kwargs : dict, optional
+        Further keyword args are relayed to the IPKernelApp constructor,
+        allowing configuration of the Kernel.  Will only have an effect
+        on the first embed_kernel call for a given process.
+
+    """
+    from ipykernel.kernelapp import IPKernelApp
+
+    # get the app if it exists, or set it up if it doesn't
+    if IPKernelApp.initialized():
+        app = IPKernelApp.instance()
+    else:
+        app = IPKernelApp.instance(**kwargs)
+        app.initialize([])
+        # Undo unnecessary sys module mangling from init_sys_modules.
+        # This would not be necessary if we could prevent it
+        # in the first place by using a different InteractiveShell
+        # subclass, as in the regular embed case.
+        main = app.kernel.shell._orig_sys_modules_main_mod
+        if main is not None:
+            sys.modules[app.kernel.shell._orig_sys_modules_main_name] = main
+    if frame is None:
+        frame = sys._getframe(1)
+    local_ns, module, cell_dict, write_back_vars = setup_embedded_shell(
+        app.kernel.shell, funcs, frame, extra_locals)
+    app.kernel.user_module = module
+    app.kernel.user_ns = local_ns
+    app.shell.set_completer_frame()
+    app.start()
+    app.close()
+    update_locals({k: cell_dict[k].cell_contents
+                   for k in write_back_vars}, frame)
+
+
+def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
+                                             types.FunctionType],
+                         frame: types.FrameType, extra_locals: Dict[str, Any]):
+    """
+    setup embedded shell for both `embed` and `embed_kernel`
+
+    :param shell: shell to augment
+    :param funcs: list of functions to get closure cells from
+    :param frame: frame to get locals and globals from
+    :param extra_locals: extra variable -> value dict to add to locals
+    :return: local_ns, module
+        local_ns: dict of locals
+        module: a module that the shell should run in the scope of; has __dict__
+        as the globals
+    """
+    cell_dict = get_cell_dict_from_funcs(funcs)
+    write_back_vars = []
+    for k, v in frame.f_locals.items():
+        if k not in cell_dict:
+            write_back_vars.append(k)
+            cell_dict[k] = types.CellType(v)
+    # the following allows something like `_ipy_magic_shell.keep_running =
+    # False` to exit the shell without requiring an EOF or killing the process
+    cell_dict[magic + "_shell"] = types.CellType(shell)
+    if extra_locals:
+        for k, v in extra_locals:
+            cell_dict[k] = types.CellType(v)
+    extra_globals = set()
+    shell.ast_transformers.append(
+        FixLocals(shell, frame, cell_dict, extra_globals, magic))
+
+    from IPython.core.interactiveshell import DummyMod
+    module = DummyMod()
+    module.__dict__ = frame.f_globals
+    return frame.f_locals, module, cell_dict, write_back_vars
 
 
 class FixLocals(object):
