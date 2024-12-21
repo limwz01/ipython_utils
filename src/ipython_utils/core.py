@@ -316,28 +316,33 @@ class FixLocals(object):
         self.magic = magic
 
     def visit(self, module_ast: ast.Module):
-        if self.extra_globals:
-            module_ast.body.insert(
-                0,
-                ast.copy_location(
-                    ast.Global(names=list(self.extra_globals)),
-                    module_ast.body[0] if module_ast.body else module_ast))
-        CollectGlobals(self.extra_globals).visit(module_ast)
-        patcher_cell = types.CellType()
-        statement = module_ast.body[-1]
-        if isinstance(statement, ast.Expr):
-            module_ast.body[-1] = ast.copy_location(
-                ast.Return(value=statement.value), statement)
-        run_statements_helper(patcher_cell, module_ast.body, None,
-                                       self.magic + "_shell", None,
-                                       self.shell.user_global_ns,
-                                       list(self.cell_dict.keys()), [], [],
-                                       self.frame.f_code.co_filename, 0,
-                                       self.shell.compile.flags, self.magic,
-                                       False, None)
-        patched = patcher_cell.cell_contents(self.cell_dict)
-        self.shell.user_ns[self.magic + "_inner"] = patched
-        return self.shell.compile.ast_parse(self.magic + "_inner()")
+        try:
+            if self.extra_globals:
+                module_ast.body.insert(
+                    0,
+                    ast.copy_location(
+                        ast.Global(names=list(self.extra_globals)),
+                        module_ast.body[0] if module_ast.body else module_ast))
+            CollectGlobals(self.extra_globals).visit(module_ast)
+            patcher_cell = types.CellType()
+            statement = module_ast.body[-1]
+            if isinstance(statement, ast.Expr):
+                module_ast.body[-1] = ast.copy_location(
+                    ast.Return(value=statement.value), statement)
+            run_statements_helper(patcher_cell, module_ast.body, None,
+                                        self.magic + "_shell", None,
+                                        self.shell.user_global_ns,
+                                        list(self.cell_dict.keys()), [], [],
+                                        self.frame.f_code.co_filename, 0,
+                                        self.shell.compile.flags, self.magic,
+                                        False, None)
+            patched = patcher_cell.cell_contents(self.cell_dict)
+            self.shell.user_ns[self.magic + "_inner"] = patched
+            return self.shell.compile.ast_parse(self.magic + "_inner()")
+        except Exception as e:
+            self.shell.user_ns[self.magic + "_error"] = e
+            return self.shell.compile.ast_parse("raise " + self.magic +
+                                                "_error")
 
 
 class CollectGlobals(ast.NodeVisitor):
