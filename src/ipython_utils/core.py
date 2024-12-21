@@ -978,17 +978,23 @@ def run_statements_helper(patcher_cell: types.CellType,
             *[None for i in range(all_locals_len)])
         c = _inner.__code__
         inner_code = c.replace(co_filename=filename, co_name=name)
-        new_closure = [
-            cell_dict.setdefault(x, y)
-            for x, y in zip(inner_code.co_freevars, _inner.__closure__)
-        ]
+        patched_cell = None
+        new_closure = []
+        for x, y in zip(inner_code.co_freevars, _inner.__closure__ or ()):
+            if x == magic + "_inner":
+                patched_cell = y
+                new_closure.append(y)
+            elif x == magic + "_embed":
+                y.cell_contents = embed
+                new_closure.append(y)
+            else:
+                new_closure.append(cell_dict.setdefault(x, y))
         patched = types.FunctionType(inner_code,
                                      globals,
                                      name,
                                      argdefs=None,
                                      closure=tuple(new_closure))
-        cell_dict[magic + "_inner"].cell_contents = patched
-        cell_dict[magic + "_embed"].cell_contents = embed
+        patched_cell.cell_contents = patched
         if module:
             patched.__module__ = module
         if qualname:
