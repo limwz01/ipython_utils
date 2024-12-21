@@ -294,11 +294,62 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
     extra_globals = set()
     shell.ast_transformers.append(
         FixLocals(shell, frame, cell_dict, extra_globals, magic))
+    old_get_exc_info = shell._get_exc_info
+
+    def get_exc_info(exc_tuple=None):
+        try:
+            tb: types.TracebackType
+            etype, value, tb = old_get_exc_info(exc_tuple)
+            final_tb = None
+            pprev = None
+            prev = tb
+            tb = prev.tb_next
+            while tb:
+                if (prev.tb_frame.f_code.co_filename.startswith(
+                        "<ipython-input-")
+                        and prev.tb_frame.f_code.co_name == "<module>"
+                        and tb.tb_frame.f_code.co_name == magic + "_cell"):
+                    prev = tb
+                    if pprev is not None:
+                        pprev.tb_next = prev
+                if final_tb is None:
+                    final_tb = prev
+                pprev = prev
+                prev = tb
+                tb = tb.tb_next
+        except Exception as e:
+            L.error("error adjusting traceback", exc_info=True)
+            raise e
+        return etype, value, final_tb
+
+    shell._get_exc_info = get_exc_info
+    old_compiler_class = shell.compiler_class
+
+    class Compiler(old_compiler_class):
+
+        def __init__(self):
+            super().__init__()
+
+        def ast_parse(self, source, filename="<unknown>", symbol="exec"):
+            code_ast: ast.Module = super().ast_parse(source, filename, symbol)
+            code_ast.filename = filename
+            return code_ast
+            # return AstModule(code_ast.body, code_ast.type_ignores, filename)
+
+    shell.compiler_class = Compiler
+    shell.compile = Compiler()
 
     from IPython.core.interactiveshell import DummyMod
     module = DummyMod()
     module.__dict__ = frame.f_globals
     return frame.f_locals, module, cell_dict, write_back_vars
+
+
+# class AstModule(ast.Module):
+
+#     def __init__(self, body, type_ignores, filename):
+#         super().__init__(body, type_ignores)
+#         self.filename = filename
 
 
 class FixLocals(object):
@@ -331,13 +382,12 @@ class FixLocals(object):
             if isinstance(statement, ast.Expr):
                 module_ast.body[-1] = ast.copy_location(
                     ast.Return(value=statement.value), statement)
-            run_statements_helper(patcher_cell, module_ast.body, None,
-                                        self.magic + "_shell", None,
-                                        self.shell.user_global_ns,
-                                        list(self.cell_dict.keys()), [], [],
-                                        self.frame.f_code.co_filename, 0,
-                                        self.shell.compile.flags, self.magic,
-                                        False, None)
+            run_statements_helper(
+                patcher_cell, module_ast.body, None,
+                self.magic + "_cell", None, self.shell.user_global_ns,
+                list(self.cell_dict.keys()), [], [],
+                getattr(module_ast, "filename", "<" + self.magic + "_source>"),
+                0, self.shell.compile.flags, self.magic, False, None)
             patched = patcher_cell.cell_contents(self.cell_dict)
             self.shell.user_ns[self.magic + "_inner"] = patched
             return self.shell.compile.ast_parse(self.magic + "_inner()")
