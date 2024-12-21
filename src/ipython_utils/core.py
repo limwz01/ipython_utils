@@ -317,13 +317,15 @@ class FixLocals(object):
 
     def visit(self, module_ast: ast.Module):
         try:
-            if self.extra_globals:
+            ExcludeNlsFromGlobals(self.extra_globals).visit(module_ast)
+            if len(self.extra_globals):
                 module_ast.body.insert(
                     0,
                     ast.copy_location(
                         ast.Global(names=list(self.extra_globals)),
                         module_ast.body[0] if module_ast.body else module_ast))
-            CollectGlobals(self.extra_globals).visit(module_ast)
+            CollectGlobals(self.extra_globals,
+                           self.cell_dict).visit(module_ast)
             patcher_cell = types.CellType()
             statement = module_ast.body[-1]
             if isinstance(statement, ast.Expr):
@@ -350,6 +352,28 @@ class CollectGlobals(ast.NodeVisitor):
     collect all variables in global statements
     """
 
+    def __init__(self, found_globals: Set[str],
+                 cell_dict: Dict[str, types.CellType]):
+        super().__init__()
+        self.found_globals = found_globals
+        self.cell_dict = cell_dict
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        return
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        return
+
+    def visit_Global(self, node: ast.Global):
+        self.found_globals.update(
+            (x for x in node.names if x not in self.cell_dict))
+
+
+class ExcludeNlsFromGlobals(ast.NodeVisitor):
+    """
+    exclude nonlocal variables from found globals
+    """
+
     def __init__(self, found_globals: Set[str]):
         super().__init__()
         self.found_globals = found_globals
@@ -357,8 +381,11 @@ class CollectGlobals(ast.NodeVisitor):
     def visit_FunctionDef(self, node: ast.FunctionDef):
         return
 
-    def visit_Global(self, node: ast.Global) -> Any:
-        self.found_globals.update(node.names)
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        return
+
+    def visit_Nonlocal(self, node: ast.Nonlocal):
+        self.found_globals.difference_update(node.names)
 
 
 def embed2(*, frame=None, header="", compile_flags=None, **kwargs):
