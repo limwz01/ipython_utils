@@ -707,18 +707,10 @@ def get_cell_dict_from_funcs(funcs: Union[List[types.FunctionType],
     """
     cell_dict: Dict[str, types.CellType] = {}
     if funcs:
-        if isinstance(funcs, types.FunctionType):
-            func = funcs
-            if func.__closure__:
-                for name, val in zip(func.__code__.co_freevars,
-                                     func.__closure__):
-                    cell_dict[name] = val
-        else:
-            for func in funcs:
-                if func.__closure__:
-                    for name, val in zip(func.__code__.co_freevars,
-                                         func.__closure__):
-                        cell_dict[name] = val
+        for func in [funcs] if isinstance(funcs,
+                                          types.FunctionType) else funcs:
+            cell_dict.update(
+                zip(func.__code__.co_freevars, func.__closure__ or ()))
     return cell_dict
 
 
