@@ -286,14 +286,15 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
             write_back_vars.append(k)
             cell_dict[k] = types.CellType(v)
     # the following allows something like `_ipy_magic_shell.keep_running =
-    # False` to exit the shell without requiring an EOF or killing the process
+    # False` (embed) or `_ipy_magic_shell.ask_exit()` (embed_kernel) to exit the
+    # shell without requiring an EOF or killing the process
     cell_dict[magic + "_shell"] = types.CellType(shell)
     if extra_locals:
         for k, v in extra_locals:
             cell_dict[k] = types.CellType(v)
     extra_globals = set()
     shell.ast_transformers.append(
-        FixLocals(shell, frame, cell_dict, extra_globals, magic))
+        FixLocals(shell, cell_dict, extra_globals, magic))
     old_get_exc_info = shell._get_exc_info
 
     def get_exc_info(exc_tuple=None):
@@ -305,8 +306,9 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
             prev = tb
             tb = prev.tb_next
             while tb:
-                if (prev.tb_frame.f_code.co_filename.startswith(
-                        "<ipython-input-")
+                if ((prev.tb_frame.f_code.co_filename.startswith(
+                        "<ipython-input-") or prev.tb_frame.f_code.co_filename.
+                     startswith("/tmp/ipykernel_"))
                         and prev.tb_frame.f_code.co_name == "<module>"
                         and tb.tb_frame.f_code.co_name == magic + "_cell"):
                     prev = tb
@@ -339,10 +341,11 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
     shell.compiler_class = Compiler
     shell.compile = Compiler()
 
-    from IPython.core.interactiveshell import DummyMod
-    module = DummyMod()
-    module.__dict__ = frame.f_globals
-    return frame.f_locals, module, cell_dict, write_back_vars
+    # from IPython.core.interactiveshell import DummyMod
+    # module = DummyMod()
+    # module.__dict__ = frame.f_globals
+    return frame.f_locals, sys.modules[
+        frame.f_globals["__name__"]], cell_dict, write_back_vars
 
 
 # class AstModule(ast.Module):
@@ -357,11 +360,9 @@ class FixLocals(object):
     use the helper to generate an inner closure with all the locals
     """
 
-    def __init__(self, shell, frame: types.FrameType,
-                 cell_dict: Dict[str, types.CellType], extra_globals: Set[str],
-                 magic):
+    def __init__(self, shell, cell_dict: Dict[str, types.CellType],
+                 extra_globals: Set[str], magic):
         self.shell = shell
-        self.frame = frame
         self.cell_dict = cell_dict
         self.extra_globals = extra_globals
         self.magic = magic
