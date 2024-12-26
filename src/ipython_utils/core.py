@@ -290,7 +290,7 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
     # shell without requiring an EOF or killing the process
     cell_dict[magic + "_shell"] = types.CellType(shell)
     if extra_locals:
-        for k, v in extra_locals:
+        for k, v in extra_locals.items():
             cell_dict[k] = types.CellType(v)
     extra_globals = set()
     shell.ast_transformers.append(
