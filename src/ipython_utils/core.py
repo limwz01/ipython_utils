@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import __future__
 
+import argparse
 import ast
 import copy
 import functools
@@ -279,9 +280,10 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
         module: a module that the shell should run in the scope of; has __dict__
         as the globals
     """
+    local_ns = frame.f_locals
     cell_dict = get_cell_dict_from_funcs(funcs)
     write_back_vars = []
-    for k, v in frame.f_locals.items():
+    for k, v in local_ns.items():
         if k not in cell_dict:
             write_back_vars.append(k)
             cell_dict[k] = types.CellType(v)
@@ -295,6 +297,7 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
     extra_globals = set()
     shell.ast_transformers.append(
         FixLocals(shell, cell_dict, extra_globals, magic))
+    local_ns.update(iter_cell_dict_contents(cell_dict))
     old_get_exc_info = shell._get_exc_info
 
     def get_exc_info(exc_tuple=None):
@@ -344,8 +347,13 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
     # from IPython.core.interactiveshell import DummyMod
     # module = DummyMod()
     # module.__dict__ = frame.f_globals
-    return frame.f_locals, sys.modules[
+    return local_ns, sys.modules[
         frame.f_globals["__name__"]], cell_dict, write_back_vars
+
+
+def iter_cell_dict_contents(cell_dict):
+    for key, cell in cell_dict.items():
+        yield key, cell.cell_contents
 
 
 # class AstModule(ast.Module):
@@ -390,12 +398,18 @@ class FixLocals(object):
                 getattr(module_ast, "filename", "<" + self.magic + "_source>"),
                 0, self.shell.compile.flags, self.magic, False, None)
             patched = patcher_cell.cell_contents(self.cell_dict)
+            self.shell.user_ns[self.magic + "_update"] = self.update_ns
             self.shell.user_ns[self.magic + "_inner"] = patched
-            return self.shell.compile.ast_parse(self.magic + "_inner()")
+            return self.shell.compile.ast_parse("(" + self.magic +
+                                                "_inner(), " + self.magic +
+                                                "_update())[0]")
         except Exception as e:
-            self.shell.user_ns[self.magic + "_error"] = e
+            self.user_ns[self.magic + "_error"] = e
             return self.shell.compile.ast_parse("raise " + self.magic +
                                                 "_error")
+
+    def update_ns(self):
+        self.shell.user_ns.update(iter_cell_dict_contents(self.cell_dict))
 
 
 class CollectGlobals(ast.NodeVisitor):
