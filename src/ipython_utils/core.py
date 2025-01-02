@@ -240,18 +240,16 @@ def embed_kernel(funcs: Union[List[types.FunctionType],
     from ipykernel.kernelapp import IPKernelApp
 
     # get the app if it exists, or set it up if it doesn't
-    if IPKernelApp.initialized():
-        app = IPKernelApp.instance()
-    else:
-        app = IPKernelApp.instance(**kwargs)
-        app.initialize([])
-        # Undo unnecessary sys module mangling from init_sys_modules.
-        # This would not be necessary if we could prevent it
-        # in the first place by using a different InteractiveShell
-        # subclass, as in the regular embed case.
-        main = app.kernel.shell._orig_sys_modules_main_mod
-        if main is not None:
-            sys.modules[app.kernel.shell._orig_sys_modules_main_name] = main
+    assert not IPKernelApp.initialized()
+    app = IPKernelApp.instance(**kwargs)
+    app.initialize([])
+    # Undo unnecessary sys module mangling from init_sys_modules.
+    # This would not be necessary if we could prevent it
+    # in the first place by using a different InteractiveShell
+    # subclass, as in the regular embed case.
+    main = app.kernel.shell._orig_sys_modules_main_mod
+    if main is not None:
+        sys.modules[app.kernel.shell._orig_sys_modules_main_name] = main
     if frame is None:
         frame = sys._getframe(1)
     local_ns, module, cell_dict, write_back_vars = setup_embedded_shell(
@@ -261,6 +259,9 @@ def embed_kernel(funcs: Union[List[types.FunctionType],
     app.shell.set_completer_frame()
     app.start()
     app.close()
+    app.kernel.shell_class.clear_instance()
+    app.kernel_class.clear_instance()
+    IPKernelApp.clear_instance()
     update_locals({k: cell_dict[k].cell_contents
                    for k in write_back_vars}, frame)
 
