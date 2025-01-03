@@ -352,9 +352,12 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
         frame.f_globals["__name__"]], cell_dict, write_back_vars
 
 
-def iter_cell_dict_contents(cell_dict):
+def iter_cell_dict_contents(cell_dict: Dict[str, types.CellType]):
     for key, cell in cell_dict.items():
-        yield key, cell.cell_contents
+        try:
+            yield key, cell.cell_contents
+        except:
+            pass
 
 
 # class AstModule(ast.Module):
