@@ -740,8 +740,8 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
                 # L.info("setting %s to %s", co_varnames[i], args[i])
                 cell_dict[co_varnames[i]].cell_contents = args[i]
             elif i >= non_default_count:
-                cell_dict[co_varnames[i]].cell_contents = f_defaults[
-                    i - non_default_count]
+                cell_dict[co_varnames[i]].cell_contents = kwargs.pop(
+                    co_varnames[i], f_defaults[i - non_default_count])
             else:
                 assert i >= co_posonlyargcount
                 cell_dict[co_varnames[i]].cell_contents = kwargs.pop(
