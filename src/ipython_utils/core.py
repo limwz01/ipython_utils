@@ -19,8 +19,7 @@ from typing import Any, Dict, List, Set, TextIO, Union
 L = logging.getLogger("ipython_utils." + __file__)
 
 magic = "_ipy_magic"
-_ipy_magic_inner: None  # dummy to resolve IDE errors
-globals()[magic + "_inner"] = lambda: None
+_ipy_magic_inner = lambda: None  # unused; only for users to import and resolve IDE errors
 
 
 def add_except_hook(logger=L):
@@ -51,6 +50,8 @@ def get_except_hook(logger):
             if "/site-packages/" in record.filename:
                 continue
             if record.filename.startswith("pandas/_libs/"):
+                continue
+            if record.function.startswith("assert_"):
                 continue
             logger.info("frame: %s", record)
             frame = record.frame
@@ -734,7 +735,6 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
         # L.info("%s",f'{args=} {kwargs=}')
         non_default_count = co_argcount - (len(f_defaults)
                                            if f_defaults else 0)
-        assert len(args) >= non_default_count
         for i in range(co_argcount):
             if i < len(args):
                 # L.info("setting %s to %s", co_varnames[i], args[i])
