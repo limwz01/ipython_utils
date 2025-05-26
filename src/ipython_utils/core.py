@@ -768,7 +768,7 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
 
 
 def get_cell_dict_from_funcs(funcs: Union[List[types.FunctionType],
-                                          types.FunctionType]):
+                                          types.MethodType]):
     """
     get cell_dict from the closures of provided funcs
     :param funcs: functions
@@ -776,8 +776,9 @@ def get_cell_dict_from_funcs(funcs: Union[List[types.FunctionType],
     """
     cell_dict: Dict[str, types.CellType] = {}
     if funcs:
-        for func in [funcs] if isinstance(funcs,
-                                          types.FunctionType) else funcs:
+        for func in [funcs
+                     ] if isinstance(funcs, types.FunctionType) or isinstance(
+                         funcs, types.MethodType) else funcs:
             cell_dict.update(
                 zip(func.__code__.co_freevars, func.__closure__ or ()))
     return cell_dict
