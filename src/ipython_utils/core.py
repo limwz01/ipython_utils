@@ -767,7 +767,9 @@ def try_all_statements(f: types.FunctionType, stream=sys.stderr):
     return wrapper
 
 
-def get_cell_dict_from_funcs(funcs: Union[List[types.FunctionType],
+def get_cell_dict_from_funcs(funcs: Union[List[Union[types.FunctionType,
+                                                     types.MethodType]],
+                                          types.FunctionType,
                                           types.MethodType]):
     """
     get cell_dict from the closures of provided funcs
