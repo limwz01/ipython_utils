@@ -22,15 +22,24 @@ def outer_function():
         y4 = 4
         def g():
             print(y1)
-        embed() # no local variable persistence
-        embed(target_function) # x can be updated, as target_function was closed over x
+        # creating closures in the shell involving any of the above variables
+        # will not close over the real variables if no function is provided to
+        # extract the closure cells from, but updating locals still "works", in
+        # a way
+        embed()
+        # if we pass `target_function`, since it closed over `x`, now in the
+        # shell we can close over the real `x`
+        embed(target_function)
         print(x, y1, y2, y3, y4)
-        embed([target_function, g]) # y1 can also be updated, as g was closed over y1
+        # if we pass `g` as well, since it closed over `y1`, now in the
+        # shell we can close over both the real `x` and the real `y1`
+        embed([target_function, g])
         print(x, y1, y2, y3, y4)
-        # we can easily force a closure over y2 and y3, and pass it to embed,
-        # allowing it to update y2 and y3
+        # we can easily force a closure over `y2` and `y3`, and pass it to
+        # embed, allowing it to create closures over the real `y2` and `y3`
         embed([target_function, lambda: (y2, y3)])
     return target_function
+outer_function()()
 ```
 
 ## Limited functionality in default IPython embedded shell
@@ -71,11 +80,11 @@ In [4]: (lambda: x)()
 ...
 NameError: name 'x' is not defined
 
-In [5]: [x for i in range(10)]
+In [5]: [x for i in range(10)] # fails in Python 3.12 and earlier
 ...
 NameError: name 'x' is not defined
 
-In [6]: t = 1; [t for i in range(10)]
+In [6]: t = 1; [t for i in range(10)] # fails in Python 3.12 and earlier
 ...
 NameError: name 't' is not defined
 ```
