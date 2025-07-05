@@ -183,22 +183,29 @@ def test_try():
 1
 1.0
 0
-2024-07-03 13:02:56;runner;ipython_utils;759;INFO: exception raised
 Traceback (most recent call last):
-  File "/working/ipython_utils/ipython_utils.py", line 757, in runner
+  File "/working/.local/lib/python3.13/site-packages/ipython_utils/core.py", line 1097, in runner
     ret = patched(i)
-  File "/working/ipython_utils/ipython_utils.py", line 1026, in f
+  File "/working/test.py", line 11, in f
     x = 1 / x  # (x + 1)
+        ~~^~~
 ZeroDivisionError: division by zero
-filename [/working/ipython_utils/ipython_utils.py]: # after editing
-function line num [1022]:
-next statement line num [1026]:
+next statement [/tmp/test.py;7;11]: # after fixing the source just hit enter
 1.0
 1
 0.5
 0
 1.0
 ```
+
+The continuation point is specified as follows:
+`[[<filename>;]<func_line_num>;]<next_statement_line_num>`. If the user enters a
+negative number `-x` for the next statement line, an embedded shell will be
+injected into the statement at line `x`, after which a raise will once again
+drop it back here. The special case of `0` is treated as `-x` (which triggers
+the shell) where `x` is the default next statement line (the line of the
+statement which failed); this is the most useful. If just a semicolon is given,
+the exception is re-raised.
 
 We provide a magic variable `_ipy_magic_inner` to access the inner function which has the closure for all the local variables. This allows you to always be able to embed a shell within a `try_all_statements`-decorated function to modify any of the local variables as follows:
 

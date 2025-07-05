@@ -896,8 +896,9 @@ def run_statements_helper(patcher_cell: types.CellType,
     enters a negative number `-x` for the next statement line, an embedded shell
     will be injected into the statement at line `x`, after which a raise will
     once again drop it back here. The special case of `0` is treated as `-x`
-    where `x` is the default next statement line (the line of the statement
-    which failed). If just a semicolon is given, the exception is re-raised.
+    (which triggers the shell) where `x` is the default next statement line (the
+    line of the statement which failed); this is the most useful. If just a
+    semicolon is given, the exception is re-raised.
 
     General Info:
     If `f` is a function, then
