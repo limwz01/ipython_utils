@@ -299,7 +299,7 @@ def setup_embedded_shell(shell, funcs: Union[List[types.FunctionType],
     extra_globals = set()
     shell.ast_transformers.append(
         FixLocals(shell, cell_dict, extra_globals, magic))
-    local_ns.update(iter_cell_dict_contents(cell_dict))
+    local_ns.update({**iter_cell_dict_contents(cell_dict)})
     old_get_exc_info = shell._get_exc_info
 
     def get_exc_info(exc_tuple=None):
