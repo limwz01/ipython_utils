@@ -53,6 +53,8 @@ def get_except_hook(logger):
                 continue
             if record.function.startswith("assert_"):
                 continue
+            if record.filename == "<__array_function__ internals>":
+                continue
             logger.info("frame: %s", record)
             frame = record.frame
             msg = "Entering IPython console at {0.f_code.co_filename} at line {0.f_lineno}".format(
