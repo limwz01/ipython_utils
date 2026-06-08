@@ -809,7 +809,7 @@ class TryBlockTransformer(ast.NodeTransformer):
             #   it2 = iter(it)
             #   if i == 0:
             #       try:
-            #           _ = next(it)
+            #           x, (y, z) = next(it)
             #       except:
             #           return True
             #   for _ in [0]:
@@ -845,13 +845,25 @@ def run_statements_helper(patcher_cell: types.CellType,
         def _ipy_magic_inner(_i):
             nonlocal _ipy_magic_inner
             nonlocal a, b, c
-            if _i == 0:
+            if _i[0] == 0:
                 statement0
-                return _ipy_magic_inner
-            elif _i == 1:
+                return (_ipy_magic_inner, (1,))
+            elif _i[0] == 1:
                 statement1
-                return _ipy_magic_inner
-            ...
+                return (_ipy_magic_inner, (2,))
+            elif _i[0] == 2: # if `for x, (y, z) in it`
+                if len(_i) == 1:
+                    it2 = iter(it)
+                    return (_ipy_magic_inner, (2, 1))
+                elif _i[1] == 1:
+                    statement2.1
+                    return (_ipy_magic_inner, (2, 2))
+                elif _i[1] == 2:
+                    statement2.2
+                    return (_ipy_magic_inner, (2, 3))
+                # ...
+                return (_ipy_magic_inner, (3,))
+            # ...
         return _ipy_magic_inner
     ```
 
